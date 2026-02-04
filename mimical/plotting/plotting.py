@@ -35,7 +35,7 @@ class Plotter(object):
 
         ax = fig.add_subplot(gs[0, 0])
         ax.set_axis_off()
-        im1 = ax.pcolormesh(np.zeros_like(images[0]), vmax=vmaxs[0], vmin=vmins[0], cmap='RdGy')
+        im1 = ax.pcolormesh(np.zeros_like(images[0]), vmax=vmaxs[0], vmin=vmins[0], cmap='RdGy', rasterized=True)
         cbarax1 = fig.add_subplot(gs[:3, -1])
         cbarax1.set_yticks([])
         cbarax1.set_xticks([])
@@ -44,7 +44,7 @@ class Plotter(object):
         cbar1.locator = tick_locator
         cbar1.update_ticks()
 
-        im2 = ax.pcolormesh(np.zeros_like(images[0]), vmax=vmaxs[-1], vmin=vmins[-1], cmap='RdGy')
+        im2 = ax.pcolormesh(np.zeros_like(images[0]), vmax=vmaxs[-1], vmin=vmins[-1], cmap='RdGy', rasterized=True)
         cbarax2 = fig.add_subplot(gs[3, -1])
         cbarax2.set_yticks([])
         cbarax2.set_xticks([])
@@ -60,7 +60,7 @@ class Plotter(object):
             for j in range(4):
 
                 ax = fig.add_subplot(gs[j, i])
-                im = ax.pcolormesh(plotims[j], vmax=vmaxs[j], vmin=vmins[j], cmap='RdGy')
+                im = ax.pcolormesh(plotims[j], vmax=vmaxs[j], vmin=vmins[j], cmap='RdGy', rasterized=True)
                 ax.set_yticks([])
                 ax.set_xticks([])
 
@@ -114,7 +114,7 @@ class Plotter(object):
 
         ax = fig.add_subplot(gs[0, 0])
         ax.set_axis_off()
-        im1 = ax.pcolormesh(np.zeros_like(images[0]), vmax=vmaxs[0], vmin=vmins[0], cmap='RdGy')
+        im1 = ax.pcolormesh(np.zeros_like(images[0]), vmax=vmaxs[0], vmin=vmins[0], cmap='RdGy', rasterized=True)
         cbarax1 = fig.add_subplot(gs[:3, -1])
         cbarax1.set_yticks([])
         cbarax1.set_xticks([])
@@ -123,7 +123,7 @@ class Plotter(object):
         cbar1.locator = tick_locator
         cbar1.update_ticks()
 
-        im2 = ax.pcolormesh(np.zeros_like(images[0]), vmax=vmaxs[-1], vmin=vmins[-1], cmap='RdGy')
+        im2 = ax.pcolormesh(np.zeros_like(images[0]), vmax=vmaxs[-1], vmin=vmins[-1], cmap='RdGy', rasterized=True)
         cbarax2 = fig.add_subplot(gs[3, -1])
         cbarax2.set_yticks([])
         cbarax2.set_xticks([])
@@ -139,7 +139,7 @@ class Plotter(object):
             for j in range(4):
 
                 ax = fig.add_subplot(gs[j, i])
-                im = ax.pcolormesh(plotims[j], vmax=vmaxs[j], vmin=vmins[j], cmap='RdGy')
+                im = ax.pcolormesh(plotims[j], vmax=vmaxs[j], vmin=vmins[j], cmap='RdGy', rasterized=True)
                 ax.set_yticks([])
                 ax.set_xticks([])
 

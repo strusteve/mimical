@@ -1,5 +1,5 @@
-import setuptools
-from setuptools import setup
+from setuptools import setup, find_packages
+from codecs import open
 from os import path
 
 here = path.abspath(path.dirname(__file__))
@@ -10,7 +10,7 @@ with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
 setup(
     name='mimical',
 
-    version='0.1.5',
+    version='0.1.6',
 
     description='Intensity modelling of multiply-imaged objects',
 
@@ -20,10 +20,14 @@ setup(
 
     author_email='struan.stevenson@ed.ac.uk',
 
-    packages= ["mimical", "mimical.fitting", "mimical.plotting", "mimical.utils",],
+    packages= ["mimical", "mimical.fitting", "mimical.plotting", "mimical.utils"],
 
     include_package_data=True,
 
     install_requires=["numpy", "astropy", "matplotlib", "nautilus-sampler", "petrofit"],
+
+    project_urls={
+        "GitHub": "https://github.com/strusteve/mimical"
+    }
 
 )

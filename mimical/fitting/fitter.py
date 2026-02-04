@@ -243,10 +243,10 @@ class mimical(object):
             if type=='median':
                 # Plot and save the median-parameter fit
                 Plotter().plot_median(self.images, self.wavs, self.convolved_models, self.samples, list(self.fitter_prior.keys), self.prior_handler, self.filter_names)
-                plt.savefig(dir_path+'/mimical/plots' + f'/{self.id}_median_model.pdf', bbox_inches='tight')
+                plt.savefig(dir_path+'/mimical/plots' + f'/{self.id}_median_model.pdf', bbox_inches='tight', dpi=500)
             elif type=='median-param':
                 # Plot and save the median-parameter fit
                 Plotter().plot_median_param(self.images, self.wavs, self.convolved_models, self.samples, list(self.fitter_prior.keys), self.prior_handler, self.filter_names)
-                plt.savefig(dir_path+'/mimical/plots' + f'/{self.id}_median_param_model.pdf', bbox_inches='tight')
+                plt.savefig(dir_path+'/mimical/plots' + f'/{self.id}_median_param_model.pdf', bbox_inches='tight', dpi=500)
 
    
