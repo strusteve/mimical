@@ -1,5 +1,0 @@
-numpy
-astropy
-matplotlib
-nautilus-sampler
-petrofit
