@@ -15,4 +15,4 @@ Mimical can be installed with pip:
 .. image:: docs/median_model_example.png
 
 
-.. image:: docs/mimical_workflow.png
+.. image:: docs/mimical_workflow_chart.png
