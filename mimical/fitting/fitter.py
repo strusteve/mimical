@@ -8,13 +8,14 @@ import time
 import os
 from astropy.modeling import models
 import pandas as pd
+from tqdm import tqdm
 
-from .prior_handler import priorHandler
-from ..plotting import Plotter
+
+from .priorHandler import priorHandler
+from ..plotting import plotter
 
 from ..utils import filter_set
 
-from tqdm import tqdm
 
 
 dir_path = os.getcwd()
@@ -27,11 +28,10 @@ if not os.path.isdir(dir_path + "/mimical"):
 
 
 class mimical(object):
-    """ Bayesian Observer of Galaxies - Fit.
-    Fits multi-filter images of galaxies simultaeneously using Petrofit and Nautilus
-    by specifying either an individual filter dependency for model parameters or
-    a user-specified order polynomial. By default a Sersic profile is used however any
-    Astropy model can be specified.
+    """ Mimical is an intensity modelling code for multiply-imaged objects, 
+    performing simultaenous Bayseian inference of model parameters via the 
+    nested sampling algorithm. Mimical supports any astropy 2D model, and 
+    supports user defined parameter polynomial depenency with image wavelength.
 
     Parameters
     ----------
@@ -49,7 +49,7 @@ class mimical(object):
 
     psfs : array
         A 3D array of normalised PSF images with slices for each filter. Each PSF image
-        must be the same shape, and the same shape as the data images.
+        must be the same shape.
 
     astropy_model : array
         Astropy Fittable2DModel used to model the image data. The subsequent prior must include
@@ -73,8 +73,7 @@ class mimical(object):
             psfs = np.array(([psfs]))
 
         self.id = id
-
-        print(f"Fitting object {id}")
+        print(f"Fitting object {self.id}")
         self.images = images
         self.psfs = psfs
         self.user_prior = user_prior
@@ -105,7 +104,7 @@ class mimical(object):
         """ Returns the log-likelihood for a given parameter vector. """
 
         # Translate parameter vector into model parameters in each filter.
-        pars = self.prior_handler.revert(param_dict, self.wavs)
+        pars = self.prior_handler.revert(param_dict)
 
         # Define empty arrays for models and rms images.
         models = np.zeros_like(self.images)
@@ -167,7 +166,6 @@ class mimical(object):
             fit_dic = dict(zip((np.array((list(self.fitter_prior.keys)))+"_50").tolist(), np.median(self.samples, axis=0).tolist()))
             print(f"Loading existing posterior at " + dir_path + '/mimical/posteriors' + f'/{self.id}.txt')
             self.save_cat()
-            print(" ")
             return fit_dic
 
 
@@ -179,9 +177,7 @@ class mimical(object):
         print(f"Sampling time (minutes): {(time.time()-t0)/60}")
 
         if self.success != True:
-
             print("Sampling failed (timeout).")
-            print(" ")
             return {}
     
         else:
@@ -203,7 +199,6 @@ class mimical(object):
             fit_dic = dict(zip((np.array((list(self.fitter_prior.keys)))+"_50").tolist(), np.median(self.samples, axis=0).tolist()))
 
             print("Sampling finished successfully.")
-            print(" ")
 
             self.save_cat()
 
@@ -211,17 +206,21 @@ class mimical(object):
         
     
     def save_cat(self):
+        """ Saves the 16th/50th/84th percentiles of user prior parameter posteriors for each filter. """
 
         user_samples = np.zeros((self.samples.shape[0], len(self.wavs), len(self.user_prior.keys())))
-        # Get median Nautilus parameters and transalte into median model parameters.
+
+        # Translates fitter samples into model parameter samples
+        print("Computing model parameter posteriors...")
         for j in tqdm(range(self.samples.shape[0])):
-            # Get median Nautilus parameters and transalte into median model parameters.
             param_dict = dict(zip(list(self.fitter_prior.keys), self.samples[j]))
-            pars = self.prior_handler.revert(param_dict, self.wavs)
+            pars = self.prior_handler.revert(param_dict)
             user_samples[j] = pars
 
+        # Calculate percentiles
         quantiles = np.percentile(user_samples, q=(16, 50, 84), axis=0)
 
+        # Save to .csv table
         dic = {}
         for j in range(len(self.filter_names)):
             for i in range(len(self.user_prior.keys())):
@@ -237,16 +236,19 @@ class mimical(object):
     
 
     def plot_model(self, type='median'):
+        """ Wrapper to plot models. """
+
         if self.success != True:
             print(f'Sampling failed, cannot plot model for {self.id}.')
+
         else:
             if type=='median':
-                # Plot and save the median-parameter fit
-                Plotter().plot_median(self.images, self.wavs, self.convolved_models, self.samples, list(self.fitter_prior.keys), self.prior_handler, self.filter_names)
+                # Plot and save the median fit
+                plotter().plot_median(self.images, self.wavs, self.convolved_models, self.samples, list(self.fitter_prior.keys), self.prior_handler, self.filter_names)
                 plt.savefig(dir_path+'/mimical/plots' + f'/{self.id}_median_model.pdf', bbox_inches='tight', dpi=500)
             elif type=='median-param':
                 # Plot and save the median-parameter fit
-                Plotter().plot_median_param(self.images, self.wavs, self.convolved_models, self.samples, list(self.fitter_prior.keys), self.prior_handler, self.filter_names)
+                plotter().plot_median_param(self.images, self.wavs, self.convolved_models, self.samples, list(self.fitter_prior.keys), self.prior_handler, self.filter_names)
                 plt.savefig(dir_path+'/mimical/plots' + f'/{self.id}_median_param_model.pdf', bbox_inches='tight', dpi=500)
 
    
