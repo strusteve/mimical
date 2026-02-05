@@ -171,7 +171,6 @@ class mimical(object):
 
         # Run sampler
         t0 = time.time()
-        #sampler = Sampler(self.fitter_prior, self.lnlike, n_live=400, filepath= dir_path+'/bogout'+f'/{self.id}.hdf5', resume=True, pool=self.pool)
         sampler = Sampler(self.fitter_prior, self.lnlike, n_live=400, pool=self.pool)
         self.success = sampler.run(verbose=True, timeout=self.timeout)
         print(f"Sampling time (minutes): {(time.time()-t0)/60}")
