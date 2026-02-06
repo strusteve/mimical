@@ -4,13 +4,15 @@ from astropy.convolution.utils import discretize_model
 from tqdm import tqdm
 from matplotlib import ticker
 
+
 class plotter(object): 
     """ Contains functions for plotting either a median 
     posterior model (plot_median) or a model based of the median of each
     individual parameter (plot_median_param).
     """
 
-    def plot_median(self, images, wavs, convolved_models, samples, fitter_keys, prior_handler, filter_names):
+
+    def plot_median(self, images, wavs, convolved_models, samples, prior_handler, filter_names):
         """ Plots the median posterior model."""
 
         fig = plt.figure()
@@ -20,7 +22,7 @@ class plotter(object):
 
         print("Computing median model image...")
         for j in tqdm(range(samples.shape[0])):
-            param_dict = dict(zip(fitter_keys, samples[j]))
+            param_dict = samples[j]
             pars = prior_handler.revert(param_dict)
 
             for k in range(len(wavs)):
@@ -31,10 +33,8 @@ class plotter(object):
                                         mode='center')
                 models[j,k] = model
 
-
         models = np.median(models, axis=0)
         residuals = images - models
-
 
         vmins = [-np.percentile(images.flatten(), q=95), -np.percentile(images.flatten(), q=95), -np.percentile(images.flatten(), q=95), min(np.percentile(residuals.flatten(), q=5), -np.percentile(residuals.flatten(), q=95))]
         vmaxs = [np.percentile(images.flatten(), q=95), np.percentile(images.flatten(), q=95), np.percentile(images.flatten(), q=95), max(-np.percentile(residuals.flatten(), q=5), np.percentile(residuals.flatten(), q=95))]
@@ -84,23 +84,19 @@ class plotter(object):
                     if j==3:
                         ax.set_ylabel('Residual\nZoom')
 
-        
         plt.subplots_adjust(hspace=0.1, wspace=0.1)
         fig.set_size_inches(images.shape[0],4, forward=True)
 
 
-  
-
-    def plot_median_param(self, images, wavs, convolved_models, samples, fitter_keys, prior_handler, filter_names):
+    def plot_median_param(self, images, wavs, convolved_models, samples, prior_handler, filter_names):
         """ Plots the median parameter posterior model."""
 
         fig = plt.figure()
         gs = fig.add_gridspec(nrows=4, ncols=images.shape[0]+1, width_ratios=np.append(np.ones(images.shape[0]), 0.25))
         
         # Get median Nautilus parameters and transalte into median model parameters.
-        param_dict = dict(zip(fitter_keys, np.median(samples, axis=0)))
+        param_dict = np.median(samples, axis=0)
         pars = prior_handler.revert(param_dict)
-
 
         models = np.zeros_like(images)
         for i in range(len(wavs)):
@@ -111,7 +107,6 @@ class plotter(object):
                                     mode='center')
             models[i]=model
 
-        
         residuals = images - models
 
         vmins = [-np.percentile(images.flatten(), q=95), -np.percentile(images.flatten(), q=95), -np.percentile(images.flatten(), q=95), min(np.percentile(residuals.flatten(), q=5), -np.percentile(residuals.flatten(), q=95))]
@@ -161,7 +156,6 @@ class plotter(object):
                         ax.set_ylabel('Residual')
                     if j==3:
                         ax.set_ylabel('Residual\nZoom')
-
         
         plt.subplots_adjust(hspace=0.1, wspace=0.1)
         fig.set_size_inches(images.shape[0],4, forward=True)

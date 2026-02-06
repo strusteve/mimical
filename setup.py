@@ -10,7 +10,7 @@ with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
 setup(
     name='mimical',
 
-    version='0.1.8',
+    version='0.1.9',
 
     description='Intensity modelling of multiply-imaged objects',
 
@@ -24,7 +24,7 @@ setup(
 
     include_package_data=True,
 
-    install_requires=["numpy", "astropy", "matplotlib", "nautilus-sampler", "petrofit", "tqdm", "pandas", "corner"],
+    install_requires=["numpy", "astropy", "matplotlib", "nautilus-sampler", "petrofit", "tqdm", "pandas", "corner", "dynesty"],
 
     project_urls={
         "GitHub": "https://github.com/strusteve/mimical"

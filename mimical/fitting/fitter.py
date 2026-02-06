@@ -9,13 +9,12 @@ import os
 from astropy.modeling import models
 import pandas as pd
 from tqdm import tqdm
-
+from dynesty import DynamicNestedSampler
+from dynesty.pool import Pool
 
 from .priorHandler import priorHandler
 from ..plotting import plotter
-
 from ..utils import filter_set
-
 
 
 dir_path = os.getcwd()
@@ -24,7 +23,6 @@ if not os.path.isdir(dir_path + "/mimical"):
     os.system('mkdir ' + dir_path + "/mimical/plots")
     os.system('mkdir ' + dir_path + "/mimical/posteriors")
     os.system('mkdir ' + dir_path + "/mimical/cats")
-
 
 
 class mimical(object):
@@ -62,7 +60,7 @@ class mimical(object):
     """
 
 
-    def __init__(self, id, images, filt_list, psfs, user_prior, astropy_model=models.Sersic2D(), pool=None, timeout=3600):
+    def __init__(self, id, images, filt_list, psfs, user_prior, astropy_model=models.Sersic2D(), pool=None, sampler='Nautilus'):
         
         # Helper when only one image is passed
         if len(images.shape)==2:
@@ -73,11 +71,13 @@ class mimical(object):
             psfs = np.array(([psfs]))
 
         self.id = id
-        print(f"Fitting object {self.id}")
+        print(f"Fitting object {self.id}.")
         self.images = images
         self.psfs = psfs
         self.user_prior = user_prior
         self.astropy_model = astropy_model
+        self.pool = pool
+        self.sampler = sampler
 
         # Using the filter files, find the name of the filters and the effective wavelengths.
         self.filter_names = [x.split('/')[-1] for x in filt_list]
@@ -86,18 +86,14 @@ class mimical(object):
         # Initiate the prior handler object, used to parse and translate priors and parameters.
         self.prior_handler = priorHandler(user_prior, self.filter_names, self.wavs)
 
-        # Translate user specified prior into a prior parseable by nautlius.
-        self.fitter_prior = self.prior_handler.translate()
-        print(f"Fitting with parameters: {self.fitter_prior.keys}")
+        # Translate user specified prior into a prior parseable by sampler.
+        self.sampler_prior = self.prior_handler.translate()
+        self.ndim = self.prior_handler.calculate_dimensionality()
+        print(f"Fitting with dimensionality {self.ndim}.")
+
+        self.sampler_prior_keys = self.prior_handler.generate_sampler_prior_keys()
 
         self.t0 = time.time()
-        self.calls = 0
-
-        self.timeout=timeout
-        self.pool = pool
-
-
-
 
 
     def lnlike(self, param_dict):
@@ -127,27 +123,18 @@ class mimical(object):
             # Else, append to respective arrays.
             else:
                 models[i] = model
-                rms[i] = param_dict['rms'] + (param_dict['rms_sersic']*np.sqrt(np.abs(model)))
+                rms[i] = param_dict[-2] + (param_dict[-1]*np.sqrt(np.abs(model)))
                 #rms[i] += 1.483 * median_abs_deviation(self.images[i].flatten())
-
 
         # Broadcast the 3D data and model arrays and sum through the resulting 3D log-likelihood array.
         log_like_array = np.log((1/(np.sqrt(2*np.pi*(rms**2))))) + ((-(self.images - models)**2) / (2*(rms**2)))
         log_like = np.sum(log_like_array.flatten())
 
-        # Print calls
-        self.calls+=1
-        if not self.calls % 100:
-            #print('Time % 100: ' + str(time.time()-self.t0))
-            self.t0 = time.time()
-
         return(log_like)
 
 
-
-
     def fit(self):
-        """ Runs the Nautlius sampler to fit models, and processes its output. """
+        """ Runs the nested sampler to sample models, and processes its output. """
 
         # Define empty models for each filter
         sersic_model = self.astropy_model
@@ -159,49 +146,60 @@ class mimical(object):
         if list(self.convolved_models[0].param_names) != list(self.user_prior.keys()):
             raise Exception("Prior labels do not match model parameters.")
         
-
         if os.path.isfile(dir_path+'/mimical/posteriors' + f'/{self.id}.txt'):
-            self.success = True
             self.samples = pd.read_csv(dir_path+'/mimical/posteriors' + f'/{self.id}.txt', delimiter=' ').to_numpy()
-            fit_dic = dict(zip((np.array((list(self.fitter_prior.keys)))+"_50").tolist(), np.median(self.samples, axis=0).tolist()))
+            fit_dic = dict(zip((np.array((self.sampler_prior_keys))+"_50").tolist(), np.median(self.samples, axis=0).tolist()))
             print(f"Loading existing posterior at " + dir_path + '/mimical/posteriors' + f'/{self.id}.txt')
             self.save_cat()
             return fit_dic
 
-
-        # Run sampler
-        t0 = time.time()
-        sampler = Sampler(self.fitter_prior, self.lnlike, n_live=400, pool=self.pool)
-        self.success = sampler.run(verbose=True, timeout=self.timeout)
-        print(f"Sampling time (minutes): {(time.time()-t0)/60}")
-
-        if self.success != True:
-            print("Sampling failed (timeout).")
-            return {}
-    
-        else:
+        if self.sampler == 'Nautilus':
+            # Run sampler
+            t0 = time.time()
+            sampler = Sampler(self.sampler_prior, self.lnlike, n_live=400, pool=self.pool, n_dim = self.ndim)
+            sampler.run(verbose=True)
+            print(f"Sampling time (minutes): {(time.time()-t0)/60}")
             # Sample the posterior information
             points, log_w, log_l = sampler.posterior()
 
-            # Plot and save the corner plot
-            corner.corner(points, weights=np.exp(log_w), bins=20, labels=np.array(self.fitter_prior.keys), color='purple', plot_datapoints=False, range=np.repeat(0.999, len(self.fitter_prior.keys)))
-            plt.savefig(dir_path+'/mimical/plots' + f'/{self.id}_corner.pdf', bbox_inches='tight')
+        elif self.sampler == 'Dynesty':
+            # Run sampler
+            t0 = time.time()
+            if self.pool==None:
+                sampler = DynamicNestedSampler(self.lnlike, self.sampler_prior, ndim = self.ndim, nlive=400)
+                sampler.run_nested()
+            else:
+                with Pool(self.pool, self.lnlike, self.sampler_prior) as pool:
+                    sampler = DynamicNestedSampler(pool.loglike, pool.prior_transform, ndim = self.ndim, nlive=400, pool=pool)
+                    sampler.run_nested()
+            print(f"Sampling time (minutes): {(time.time()-t0)/60}")
+            results = sampler.results
+            # Sample the posterior information
+            points, log_w = results.samples, np.log(results.importance_weights())
 
-            # Sample an appropriately weighted posterior for representative samples.
-            n_post = 10000
-            indices = np.random.choice(np.arange(points.shape[0]), size = n_post, p=np.exp(log_w))
-            self.samples = points[indices]
-            samples_df = pd.DataFrame(data=self.samples, columns=self.fitter_prior.keys)
-            samples_df.to_csv(dir_path+'/mimical/posteriors' + f'/{self.id}.txt', sep=' ', index=False)
 
-            # Return the median-parameter model
-            fit_dic = dict(zip((np.array((list(self.fitter_prior.keys)))+"_50").tolist(), np.median(self.samples, axis=0).tolist()))
+        else:
+            raise Exception(f"Sampler {self.sampler} not supported. (Please choose either 'Nautilus' or 'Dynesty')")
 
-            print("Sampling finished successfully.")
+        print("Sampling finished successfully.")
 
-            self.save_cat()
+        # Sample an appropriately weighted posterior for representative samples.
+        n_post = 10000
+        indices = np.random.choice(np.arange(points.shape[0]), size = n_post, p=np.exp(log_w))
+        self.samples = points[indices]
+        samples_df = pd.DataFrame(data=self.samples, columns=self.sampler_prior_keys)
+        samples_df.to_csv(dir_path+'/mimical/posteriors' + f'/{self.id}.txt', sep=' ', index=False)
 
-            return fit_dic
+        # Plot and save the corner plot
+        corner.corner(points, weights=np.exp(log_w), bins=20, labels=np.array(self.sampler_prior_keys), color='purple', plot_datapoints=False, range=np.repeat(0.999, len(self.sampler_prior_keys)))
+        plt.savefig(dir_path+'/mimical/plots' + f'/{self.id}_corner.pdf', bbox_inches='tight')
+
+        # Return the median-parameter model
+        fit_dic = dict(zip((np.array((self.sampler_prior_keys))+"_50").tolist(), np.median(self.samples, axis=0).tolist()))
+
+        self.save_cat()
+
+        return fit_dic
         
     
     def save_cat(self):
@@ -212,7 +210,7 @@ class mimical(object):
         # Translates fitter samples into model parameter samples
         print("Computing model parameter posteriors...")
         for j in tqdm(range(self.samples.shape[0])):
-            param_dict = dict(zip(list(self.fitter_prior.keys), self.samples[j]))
+            param_dict = self.samples[j]
             pars = self.prior_handler.revert(param_dict)
             user_samples[j] = pars
 
@@ -232,22 +230,16 @@ class mimical(object):
         df.to_csv(dir_path+'/mimical/cats' + f'/{self.id}.csv', index=False)
 
 
-    
-
     def plot_model(self, type='median'):
         """ Wrapper to plot models. """
 
-        if self.success != True:
-            print(f'Sampling failed, cannot plot model for {self.id}.')
-
-        else:
-            if type=='median':
-                # Plot and save the median fit
-                plotter().plot_median(self.images, self.wavs, self.convolved_models, self.samples, list(self.fitter_prior.keys), self.prior_handler, self.filter_names)
-                plt.savefig(dir_path+'/mimical/plots' + f'/{self.id}_median_model.pdf', bbox_inches='tight', dpi=500)
-            elif type=='median-param':
-                # Plot and save the median-parameter fit
-                plotter().plot_median_param(self.images, self.wavs, self.convolved_models, self.samples, list(self.fitter_prior.keys), self.prior_handler, self.filter_names)
-                plt.savefig(dir_path+'/mimical/plots' + f'/{self.id}_median_param_model.pdf', bbox_inches='tight', dpi=500)
+        if type=='median':
+            # Plot and save the median fit
+            plotter().plot_median(self.images, self.wavs, self.convolved_models, self.samples, self.prior_handler, self.filter_names)
+            plt.savefig(dir_path+'/mimical/plots' + f'/{self.id}_median_model.pdf', bbox_inches='tight', dpi=500)
+        elif type=='median-param':
+            # Plot and save the median-parameter fit
+            plotter().plot_median_param(self.images, self.wavs, self.convolved_models, self.samples, self.prior_handler, self.filter_names)
+            plt.savefig(dir_path+'/mimical/plots' + f'/{self.id}_median_param_model.pdf', bbox_inches='tight', dpi=500)
 
    
