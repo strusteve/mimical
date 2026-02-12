@@ -12,7 +12,7 @@ class plotter(object):
     """
 
 
-    def plot_median(self, images, wavs, convolved_models, samples, prior_handler, filter_names):
+    def plot_median(self, images, wavs, convolved_models, samples, prior_handler, filter_names, segmaps):
         """ Plots the median posterior model."""
 
         fig = plt.figure()
@@ -23,7 +23,7 @@ class plotter(object):
         print("Computing median model image...")
         for j in tqdm(range(samples.shape[0])):
             param_dict = samples[j]
-            pars = prior_handler.revert(param_dict)
+            pars = prior_handler.revert(param_dict)[:,:prior_handler.nmodel]
 
             for k in range(len(wavs)):
                 convolved_models[k].parameters = pars[k]
@@ -31,14 +31,13 @@ class plotter(object):
                                         x_range=[0,images[k].shape[1]], 
                                         y_range=[0,images[k].shape[0]], 
                                         mode='center')
-                models[j,k] = model
+                models[j,k] = model * segmaps[k]
 
         models = np.median(models, axis=0)
         residuals = images - models
 
-        vmins = [-np.percentile(images.flatten(), q=95), -np.percentile(images.flatten(), q=95), -np.percentile(images.flatten(), q=95), min(np.percentile(residuals.flatten(), q=5), -np.percentile(residuals.flatten(), q=95))]
-        vmaxs = [np.percentile(images.flatten(), q=95), np.percentile(images.flatten(), q=95), np.percentile(images.flatten(), q=95), max(-np.percentile(residuals.flatten(), q=5), np.percentile(residuals.flatten(), q=95))]
-        cmaps = ['binary', 'binary', 'RdGy']
+        vmins = [-np.percentile(images.flatten(), q=99), -np.percentile(images.flatten(), q=99), -np.percentile(images.flatten(), q=99), min(np.percentile(residuals.flatten(), q=1), -np.percentile(residuals.flatten(), q=99))]
+        vmaxs = [np.percentile(images.flatten(), q=99), np.percentile(images.flatten(), q=99), np.percentile(images.flatten(), q=99), max(-np.percentile(residuals.flatten(), q=1), np.percentile(residuals.flatten(), q=99))]
 
         ax = fig.add_subplot(gs[0, 0])
         ax.set_axis_off()
@@ -88,7 +87,7 @@ class plotter(object):
         fig.set_size_inches(images.shape[0],4, forward=True)
 
 
-    def plot_median_param(self, images, wavs, convolved_models, samples, prior_handler, filter_names):
+    def plot_median_param(self, images, wavs, convolved_models, samples, prior_handler, filter_names, segmaps):
         """ Plots the median parameter posterior model."""
 
         fig = plt.figure()
@@ -96,7 +95,7 @@ class plotter(object):
         
         # Get median Nautilus parameters and transalte into median model parameters.
         param_dict = np.median(samples, axis=0)
-        pars = prior_handler.revert(param_dict)
+        pars = prior_handler.revert(param_dict)[:,:prior_handler.nmodel]
 
         models = np.zeros_like(images)
         for i in range(len(wavs)):
@@ -105,13 +104,12 @@ class plotter(object):
                                     x_range=[0,images[i].shape[1]], 
                                     y_range=[0,images[i].shape[0]], 
                                     mode='center')
-            models[i]=model
+            models[i]=model * segmaps[i]
 
         residuals = images - models
 
-        vmins = [-np.percentile(images.flatten(), q=95), -np.percentile(images.flatten(), q=95), -np.percentile(images.flatten(), q=95), min(np.percentile(residuals.flatten(), q=5), -np.percentile(residuals.flatten(), q=95))]
-        vmaxs = [np.percentile(images.flatten(), q=95), np.percentile(images.flatten(), q=95), np.percentile(images.flatten(), q=95), max(-np.percentile(residuals.flatten(), q=5), np.percentile(residuals.flatten(), q=95))]
-        cmaps = ['binary', 'binary', 'RdGy']
+        vmins = [-np.percentile(images.flatten(), q=99), -np.percentile(images.flatten(), q=99), -np.percentile(images.flatten(), q=99), min(np.percentile(residuals.flatten(), q=1), -np.percentile(residuals.flatten(), q=99))]
+        vmaxs = [np.percentile(images.flatten(), q=99), np.percentile(images.flatten(), q=99), np.percentile(images.flatten(), q=99), max(-np.percentile(residuals.flatten(), q=1), np.percentile(residuals.flatten(), q=99))]
 
         ax = fig.add_subplot(gs[0, 0])
         ax.set_axis_off()

@@ -11,6 +11,8 @@ import pandas as pd
 from tqdm import tqdm
 from dynesty import DynamicNestedSampler
 from dynesty.pool import Pool
+from astropy.io import fits
+from astropy.io import ascii
 
 from .priorHandler import priorHandler
 from ..plotting import plotter
@@ -23,6 +25,9 @@ if not os.path.isdir(dir_path + "/mimical"):
     os.system('mkdir ' + dir_path + "/mimical/plots")
     os.system('mkdir ' + dir_path + "/mimical/posteriors")
     os.system('mkdir ' + dir_path + "/mimical/cats")
+
+install_dir = os.path.dirname(os.path.realpath(__file__))
+sextractor_dir = (install_dir + "/utils/sextractor_config").replace("/fitting","")
 
 
 class mimical(object):
@@ -60,47 +65,133 @@ class mimical(object):
     """
 
 
-    def __init__(self, id, images, filt_list, psfs, user_prior, astropy_model=models.Sersic2D(), pool=None, sampler='Nautilus'):
-        
-        # Helper when only one image is passed
-        if len(images.shape)==2:
-            images = np.array(([images]))
-        if (type(filt_list).__name__=='str') | (type(filt_list).__name__=='str_'):
-            filt_list = [filt_list]
-        if len(psfs.shape)==2:
-            psfs = np.array(([psfs]))
+    def __init__(self, id, images_raw, filt_list, psfs, mimcal_prior, 
+                 astropy_model=models.Sersic2D(), pool=None, sampler='Nautilus', 
+                 oversample_boxlength=15, oversample_factor=10, sextractor_clean=False,
+                 sextractor_target_maxdistancepix='default'):
 
+
+        # Start the clock
+        self.genesis = time.time()
+
+        # Set passed variables
         self.id = id
         print(f"Fitting object {self.id}.")
-        self.images = images
+        self.images_raw = images_raw
+        self.filt_list = filt_list
         self.psfs = psfs
-        self.user_prior = user_prior
+        self.user_prior = mimical
+
+        # Set defaulted values
         self.astropy_model = astropy_model
         self.pool = pool
         self.sampler = sampler
+        self.oversample_boxlength = oversample_boxlength
+        self.oversample_factor = oversample_factor
+        self.sextractor_clean = sextractor_clean
 
-        # Using the filter files, find the name of the filters and the effective wavelengths.
+        # Find the names and effective wavelengths of image filters
         self.filter_names = [x.split('/')[-1] for x in filt_list]
         self.wavs = filter_set([dir_path+'/'+x for x in filt_list]).eff_wavs / 1e4
 
         # Initiate the prior handler object, used to parse and translate priors and parameters.
-        self.prior_handler = priorHandler(user_prior, self.filter_names, self.wavs)
-
-        # Translate user specified prior into a prior parseable by sampler.
+        self.prior_handler = priorHandler(mimcal_prior, self.filter_names, self.wavs)
         self.sampler_prior = self.prior_handler.translate()
-        self.ndim = self.prior_handler.calculate_dimensionality()
-        print(f"Fitting with dimensionality {self.ndim}.")
-
+        self.nmodel, self.nparam, self.ndim = self.prior_handler.calculate_dimensionality()
+        print(f"Fitting {self.nmodel}-parameter models with {self.nparam}-parameter Mimical fit with dimensionality {self.ndim}.")
         self.sampler_prior_keys = self.prior_handler.generate_sampler_prior_keys()
 
-        self.t0 = time.time()
+        # Set Sextractor criterion for definining closest object as noise
+        if sextractor_target_maxdistancepix=='default':
+            self.target_maxdistancepix = self.images_raw.shape[1]/5
+        else:
+            self.target_maxdistancepix = sextractor_target_maxdistancepix
+        
+        # Initialise default segmentation maps
+        self.segmaps = np.ones_like(self.images_raw)
 
+        # Run sextractor cleaning step if desired
+        if sextractor_clean == True:
+            self.images = self.clean_images_sextractor()
+        else:
+            self.images = self.images_raw
+
+        
+
+    def clean_images_sextractor(self):
+        """ Method for cleaning contaminated images with sextractor, overwrites images and segmentation maps. """
+
+        # Make output directories for sextractor output
+        os.system('mkdir ' + dir_path + "/mimical/sextractor")
+        os.system('mkdir ' + dir_path + "/mimical/sextractor/input_images")
+        os.system('mkdir ' + dir_path + "/mimical/sextractor/cats")
+        os.system('mkdir ' + dir_path + "/mimical/sextractor/segmaps")
+
+        # Save images passed to Mimical for passing to Sextractor
+        for i in range(len(self.filter_names)):
+            hdul = fits.HDUList()
+            hdul.append(fits.ImageHDU(data=self.images_raw[i]))
+            hdul.writeto(f"{dir_path}/mimical/sextractor/input_images/{self.id}_{self.filter_names[i]}.fits", overwrite=True)
+
+        # Run Sextractor
+        for i in range(len(self.filter_names)):
+            os.system(f"sex {dir_path}/mimical/sextractor/input_images/{self.id}_{self.filter_names[i]}.fits" +
+                      f" -c {sextractor_dir}/jwst_default_segmap.config" +
+                      f" -FILTER_NAME {sextractor_dir}/gauss_2.5_5x5.conv" +
+                      f" -PARAMETERS_NAME {sextractor_dir}/default.param" +
+                      f" -CATALOG_NAME {dir_path}/mimical/sextractor/cats/{self.id}_{self.filter_names[i]}.cat" +
+                      f" -CHECKIMAGE_NAME {dir_path}/mimical/sextractor/segmaps/{self.id}_{self.filter_names[i]}.fits")
+            
+        # Loop over filters, load Sextractor catalogues and segmentation maps, determine any areas of contamination and set them to zero.
+        cleaned_images = np.copy(self.images_raw)
+        for i in range(len(self.filter_names)):
+            image = self.images_raw[i]
+            centre_x, centre_y = image.shape[1]/2, image.shape[0]/2
+            cat = ascii.read(f"{dir_path}/mimical/sextractor/cats/{self.id}_{self.filter_names[i]}.cat").to_pandas()
+            cat['sep'] = np.sqrt( (cat['X_IMAGE']-centre_x)**2 +  (cat['Y_IMAGE']-centre_y)**2  )
+            cat.index = cat['NUMBER'].values
+
+            # If no objects found, leave segmap as ones.
+            if len(cat)==0:
+                continue
+
+            else:
+                segmap = fits.open(f"{dir_path}/mimical/sextractor/segmaps/{self.id}_{self.filter_names[i]}.fits")[0].data
+
+                # If only one object found
+                if len(cat)==1:
+                    obj_of_interest = cat.iloc[0]
+
+                # If multiple objects found
+                else:
+                    obj_of_interest = cat.loc[cat['NUMBER'].values[np.argmin(cat['sep'])]]
+
+                # If closest object is not near centre, cut it / others
+                if obj_of_interest['sep'] > self.target_maxdistancepix:
+                    segmap += 1
+                    segmap[segmap!=1] = 0
+                    self.segmaps[i] = segmap
+                    cleaned_images[i]*=segmap
+                # If closest object is near centre, cut all else
+                else:
+                    segmap += 1
+                    segmap[(segmap!=1) & (segmap!=obj_of_interest['NUMBER']+1)] = 0
+                    segmap[segmap!=0] = 1
+                    self.segmaps[i] = segmap
+                    cleaned_images[i]*=segmap
+
+        return cleaned_images
+
+        
 
     def lnlike(self, param_dict):
         """ Returns the log-likelihood for a given parameter vector. """
 
         # Translate parameter vector into model parameters in each filter.
-        pars = self.prior_handler.revert(param_dict)
+        modelpars = self.prior_handler.revert(param_dict)[:,:self.nmodel]
+        rmsarr = self.prior_handler.revert(param_dict)[:,self.nmodel]
+        ftcarr = self.prior_handler.revert(param_dict)[:,self.nmodel+1]
+
 
         # Define empty arrays for models and rms images.
         models = np.zeros_like(self.images)
@@ -109,11 +200,13 @@ class mimical(object):
         # Loop over filters
         for i in range(len(self.wavs)):
             # Update the model and evaluate over a pixel grid.
-            self.convolved_models[i].parameters = pars[i]
+            self.convolved_models[i].parameters = modelpars[i]
             model = discretize_model(model=self.convolved_models[i], 
                                      x_range=[0,self.images[i].shape[1]], 
                                      y_range=[0,self.images[i].shape[0]], 
                                      mode='center')
+            
+            model = model * self.segmaps[i]
 
             # If, for whatever reason, the model has NaNs, set to zero and blow up errors.
             if np.isnan(np.sum(model)):
@@ -123,12 +216,12 @@ class mimical(object):
             # Else, append to respective arrays.
             else:
                 models[i] = model
-                rms[i] = param_dict[-2] + (param_dict[-1]*np.sqrt(np.abs(model)))
-                #rms[i] += 1.483 * median_abs_deviation(self.images[i].flatten())
+                rms[i] = rmsarr[i] + ((ftcarr[i]**(-1/2))*np.sqrt(np.abs(model)))
 
         # Broadcast the 3D data and model arrays and sum through the resulting 3D log-likelihood array.
-        log_like_array = np.log((1/(np.sqrt(2*np.pi*(rms**2))))) + ((-(self.images - models)**2) / (2*(rms**2)))
-        log_like = np.sum(log_like_array.flatten())
+        segmask_3D = self.segmaps == 1
+        log_like_array = np.log((1/(np.sqrt(2*np.pi*(rms[segmask_3D].flatten()**2))))) + ((-(self.images[segmask_3D].flatten() - models[segmask_3D].flatten())**2) / (2*(rms[segmask_3D].flatten()**2)))
+        log_like = np.sum(log_like_array)
 
         return(log_like)
 
@@ -140,10 +233,10 @@ class mimical(object):
         sersic_model = self.astropy_model
         self.convolved_models = []
         for i in range(len(self.wavs)):
-            self.convolved_models.append(pf.PSFConvolvedModel2D(sersic_model, psf=self.psfs[i], oversample=(self.images.shape[2]/2, self.images.shape[1]/2, 15, 10)))
+            self.convolved_models.append(pf.PSFConvolvedModel2D(sersic_model, psf=self.psfs[i], oversample=(self.images.shape[2]/2, self.images.shape[1]/2, self.oversample_boxlength, self.oversample_factor)))
 
         # Check that the user specified prior contains the same parameters as the user specified model.
-        if list(self.convolved_models[0].param_names) != list(self.user_prior.keys()):
+        if list(self.convolved_models[0].param_names) != list(self.user_prior.keys())[:-2]:
             raise Exception("Prior labels do not match model parameters.")
         
         if os.path.isfile(dir_path+'/mimical/posteriors' + f'/{self.id}.txt'):
@@ -153,20 +246,19 @@ class mimical(object):
             self.save_cat()
             return fit_dic
 
+        # Run sampling with Nautilus
         if self.sampler == 'Nautilus':
-            # Run sampler
             t0 = time.time()
-            sampler = Sampler(self.sampler_prior, self.lnlike, n_live=400, pool=self.pool, n_dim = self.ndim)
+            sampler = Sampler(self.sampler_prior, self.lnlike, n_live=400, pool=self.pool, n_dim = self.nparam)
             sampler.run(verbose=True)
             print(f"Sampling time (minutes): {(time.time()-t0)/60}")
-            # Sample the posterior information
             points, log_w, log_l = sampler.posterior()
 
+        # Run sampling with Dynesty
         elif self.sampler == 'Dynesty':
-            # Run sampler
             t0 = time.time()
             if self.pool==None:
-                sampler = DynamicNestedSampler(self.lnlike, self.sampler_prior, ndim = self.ndim, nlive=400)
+                sampler = DynamicNestedSampler(self.lnlike, self.sampler_prior, ndim = self.nparam, nlive=400)
                 sampler.run_nested()
             else:
                 with Pool(self.pool, self.lnlike, self.sampler_prior) as pool:
@@ -174,9 +266,7 @@ class mimical(object):
                     sampler.run_nested()
             print(f"Sampling time (minutes): {(time.time()-t0)/60}")
             results = sampler.results
-            # Sample the posterior information
             points, log_w = results.samples, np.log(results.importance_weights())
-
 
         else:
             raise Exception(f"Sampler {self.sampler} not supported. (Please choose either 'Nautilus' or 'Dynesty')")
@@ -190,14 +280,14 @@ class mimical(object):
         samples_df = pd.DataFrame(data=self.samples, columns=self.sampler_prior_keys)
         samples_df.to_csv(dir_path+'/mimical/posteriors' + f'/{self.id}.txt', sep=' ', index=False)
 
+        self.save_cat()
+
         # Plot and save the corner plot
         corner.corner(points, weights=np.exp(log_w), bins=20, labels=np.array(self.sampler_prior_keys), color='purple', plot_datapoints=False, range=np.repeat(0.999, len(self.sampler_prior_keys)))
         plt.savefig(dir_path+'/mimical/plots' + f'/{self.id}_corner.pdf', bbox_inches='tight')
 
         # Return the median-parameter model
         fit_dic = dict(zip((np.array((self.sampler_prior_keys))+"_50").tolist(), np.median(self.samples, axis=0).tolist()))
-
-        self.save_cat()
 
         return fit_dic
         
@@ -235,11 +325,11 @@ class mimical(object):
 
         if type=='median':
             # Plot and save the median fit
-            plotter().plot_median(self.images, self.wavs, self.convolved_models, self.samples, self.prior_handler, self.filter_names)
+            plotter().plot_median(self.images, self.wavs, self.convolved_models, self.samples, self.prior_handler, self.filter_names, self.segmaps)
             plt.savefig(dir_path+'/mimical/plots' + f'/{self.id}_median_model.pdf', bbox_inches='tight', dpi=500)
         elif type=='median-param':
             # Plot and save the median-parameter fit
-            plotter().plot_median_param(self.images, self.wavs, self.convolved_models, self.samples, self.prior_handler, self.filter_names)
+            plotter().plot_median_param(self.images, self.wavs, self.convolved_models, self.samples, self.prior_handler, self.filter_names, self.segmaps)
             plt.savefig(dir_path+'/mimical/plots' + f'/{self.id}_median_param_model.pdf', bbox_inches='tight', dpi=500)
 
    
