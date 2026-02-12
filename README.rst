@@ -24,13 +24,12 @@ Mimical can be installed with pip:
 
 **Mimical prior**
 
-Below is an example mimical prior for a run using the default astropy sersic model. The first set of elements must match 
-the astropy model parameter names. The element following this must be named ``psf_pa`` and this traces the rotation of the PSF.
-The final two elements are the most complex in nature. This includes the ``rms`` parameter and the ``flux_to_counts`` parameter.
-The ``rms`` parameter traces the rms noise in the image; this can be fit with Mimical but it is **highly recommended to provide it** to reduce dimensionality 
-(see **Fixing paramters**). This is also the case for ``flux_to_counts``, which helps Mimical calculate the poisson uncertainty associated
-with the generated model; this can easily be provided by the user with information on the gain and exposure time.
-
+Below is an example ``mimical_prior``` for a run using the default astropy sersic model. The first set of element keys must match 
+the astropy model parameter names. Following this, the next element must be named ``psf_pa`` which traces the rotation of the PSF.
+The final two elements must be named ``rms`` and ``flux_to_counts``. The ``rms`` parameter traces the RMS noise in the image; 
+this can be fit with Mimical but it is **highly recommended to provide it** to reduce dimensionality 
+(see **Fixing paramters**). This is likewise for ``flux_to_counts``, which helps Mimical calculate the poisson uncertainty associated
+with the generated model; this can be easily provided by the user with information on the gain and exposure time.
 
 ``mimical_prior = {}``
 
@@ -57,12 +56,14 @@ with the generated model; this can easily be provided by the user with informati
 * ``sextractor_clean = False`` - Whether or not to let Sextractor clean the images of other objects
 * ``sextractor_target_maxdistancepix='default'`` - Radius from the image centre at which Sextractor discards the closest object as contamination. Needed for when the target object is undetected.
 
+
 **Fixing parameters**
 
 You can fix any of the parameters in the Mimical prior by setting the first element in the parameter tuple equal to either a float / int / list / ndarray. For instance, to keep ``x_0`` constant across all images, one would pass a float/int and choose the options ``('Polynomial', 0)``. Or, to supply the ``RMS`` for each image separately, one would pass a list/ndarray of length N\ :sub:`filters`\ and choose the options ``(Individual)``.
 
 
 **Workflow diagram**
+
 
 .. image:: docs/mimical_workflow.png
 
