@@ -18,9 +18,9 @@ Mimical can be installed with pip:
 
 **Required input**
 
-#. ``images`` - 3D image array with dimensions (N\ :sub:`filters`\, N_y, N_x)
-#. ``filt_list`` - An array of paths to filters curves of dimension N_{filters}
-#. ``psfs`` - 3D PSF array with dimensions (N\ :sub:`filters`\, M_y, M_x)
+#. ``images`` - 3D image array with dimensions (N\ :sub:`filters`\, N\ :sub:`y`\, N\ :sub:`x`\)
+#. ``filt_list`` - An array of paths to filters curves of dimension N\ :sub:`filters`\
+#. ``psfs`` - 3D PSF array with dimensions (N\ :sub:`filters`\, M\ :sub:`y`\, M\ :sub:`x`\)
 #. ``mimical_prior`` - A Mimical prior
 
 
@@ -62,14 +62,13 @@ with the generated model; this can be easily provided by the user with informati
 
 **Fixing parameters**
 
-You can fix any of the parameters in the Mimical prior by setting the first element in the parameter tuple equal to either a float / int / list / ndarray. For instance, to keep ``x_0`` constant across all images, one would pass a float/int and choose the options ``('Polynomial', 0)``. Or, to supply the ``RMS`` for each image separately, one would pass a list/ndarray of length N\ :sub:`filters`\ and choose the options ``(Individual)``.
+You can fix any of the parameters in the Mimical prior by setting the first element in the parameter tuple equal to either a float / int / list / ndarray. For instance, to keep ``x_0`` constant across all images, one would pass a float/int and choose the options ``('Polynomial', 0)``. Or, to supply the ``RMS`` for each image separately, one would pass a list/ndarray of length N\ :sub:`filters`\  and choose the options ``(Individual)``.
 
 
 **Workflow diagram**
 
 
 .. image:: docs/mimical_workflow.png
-
 
 
 
