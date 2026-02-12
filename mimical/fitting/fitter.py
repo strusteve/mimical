@@ -65,7 +65,7 @@ class mimical(object):
     """
 
 
-    def __init__(self, id, images_raw, filt_list, psfs, mimcal_prior, 
+    def __init__(self, id, images_raw, filt_list, psfs, mimical_prior, 
                  astropy_model=models.Sersic2D(), pool=None, sampler='Nautilus', 
                  oversample_boxlength=15, oversample_factor=10, sextractor_clean=False,
                  sextractor_target_maxdistancepix='default'):
@@ -80,7 +80,7 @@ class mimical(object):
         self.images_raw = images_raw
         self.filt_list = filt_list
         self.psfs = psfs
-        self.user_prior = mimical
+        self.user_prior = mimical_prior
 
         # Set defaulted values
         self.astropy_model = astropy_model
@@ -95,7 +95,7 @@ class mimical(object):
         self.wavs = filter_set([dir_path+'/'+x for x in filt_list]).eff_wavs / 1e4
 
         # Initiate the prior handler object, used to parse and translate priors and parameters.
-        self.prior_handler = priorHandler(mimcal_prior, self.filter_names, self.wavs)
+        self.prior_handler = priorHandler(mimical_prior, self.filter_names, self.wavs)
         self.sampler_prior = self.prior_handler.translate()
         self.nmodel, self.nparam, self.ndim = self.prior_handler.calculate_dimensionality()
         print(f"Fitting {self.nmodel}-parameter models with {self.nparam}-parameter Mimical fit with dimensionality {self.ndim}.")

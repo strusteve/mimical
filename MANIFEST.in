@@ -1,4 +1,4 @@
-include mimical/mimical/utils/sextractor_config/default.param
-include mimical/mimical/utils/sextractor_config/gauss_2.5_5x5.conv
-include mimical/mimical/utils/sextractor_config/jwst_default_segmap.config
-include mimical/LICENSE.txt
+include mimical/utils/sextractor_config/default.param
+include mimical/utils/sextractor_config/gauss_2.5_5x5.conv
+include mimical/utils/sextractor_config/jwst_default_segmap.config
+include LICENSE.txt

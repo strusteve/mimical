@@ -10,7 +10,7 @@ with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
 setup(
     name='mimical',
 
-    version='0.2.1',
+    version='0.2.2',
 
     description='Intensity modelling for multiply-imaged objects',
 
@@ -20,7 +20,7 @@ setup(
 
     author_email='struan.stevenson@ed.ac.uk',
 
-    packages= ["mimical", "mimical.fitting", "mimical.plotting", "mimical.utils"],
+    packages= find_packages(),
 
     include_package_data=True,
 
