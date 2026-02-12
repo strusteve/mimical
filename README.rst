@@ -47,7 +47,7 @@ with the generated model; this can be easily provided by the user with informati
 
 | ``mimical_prior['rms'] = ((0,1), 'Individual')``
 | ``mimical_prior['flux_to_counts'] = ((1,1e6), 'Individual')``
-
+|
 
 **Optional input and parameters**
 
