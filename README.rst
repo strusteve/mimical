@@ -3,6 +3,7 @@
 
 Mimical is an intensity modelling code for multiply-imaged objects, performing simultaenous Bayseian inference of model parameters via the nested sampling algorithm. Mimical supports any astropy 2D model, and supports user defined parameter polynomial depenency with image wavelength.
 
+
 **Installation**
 
 Mimical can be installed with pip:
@@ -22,10 +23,11 @@ Mimical can be installed with pip:
 #. ``psfs`` - 3D PSF array with dimensions (N\ :sub:`filters`\, M_y, M_x)
 #. ``mimical_prior`` - A Mimical prior
 
+
 **Mimical prior**
 
-Below is an example ``mimical_prior``` for a run using the default astropy sersic model. The first set of element keys must match 
-the astropy model parameter names. Following this, the next element must be named ``psf_pa`` which traces the rotation of the PSF.
+Below is an example ``mimical_prior`` for a run using the default astropy sersic model. The first set of element keys must match 
+the astropy model parameter names. Following this, the next element, named ``psf_pa``, traces the rotation of the PSF.
 The final two elements must be named ``rms`` and ``flux_to_counts``. The ``rms`` parameter traces the RMS noise in the image; 
 this can be fit with Mimical but it is **highly recommended to provide it** to reduce dimensionality 
 (see **Fixing paramters**). This is likewise for ``flux_to_counts``, which helps Mimical calculate the poisson uncertainty associated
@@ -45,6 +47,7 @@ with the generated model; this can be easily provided by the user with informati
 
 | ``mimical_prior['rms'] = ((0,1), 'Individual')``
 | ``mimical_prior['flux_to_counts'] = ((1,1e6), 'Individual')``
+
 
 **Optional input and parameters**
 
