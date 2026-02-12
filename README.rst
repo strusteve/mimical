@@ -1,4 +1,4 @@
-**Mimical (Modelling the Intensity of Multiply-Imaged Celestial Ancient Light)**
+**Mimical** (**M**\odelling the **I**\ntensity of **M**\ultiply-**I**\maged **C**\elestial **A**\ncient **L**\ight)
 
 
 Mimical is an intensity modelling code for multiply-imaged objects, performing simultaenous Bayseian inference of model parameters via the nested sampling algorithm. Mimical supports any astropy 2D model, and supports user defined parameter polynomial depenency with image wavelength.
