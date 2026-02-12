@@ -30,7 +30,7 @@ Below is an example ``mimical_prior`` for a run using the default astropy sersic
 the astropy model parameter names. Following this, the next element, named ``psf_pa``, traces the rotation of the PSF.
 The final two elements must be named ``rms`` and ``flux_to_counts``. The ``rms`` parameter traces the RMS noise in the image; 
 this can be fit with Mimical but it is **highly recommended to provide it** to reduce dimensionality 
-(see **Fixing paramters**). This is likewise for ``flux_to_counts``, which helps Mimical calculate the poisson uncertainty associated
+(see **Fixing parameters**). This is likewise for ``flux_to_counts``, which helps Mimical calculate the poisson uncertainty associated
 with the generated model; this can be easily provided by the user with information on the gain and exposure time.
 
 ``mimical_prior = {}``
@@ -53,7 +53,7 @@ with the generated model; this can be easily provided by the user with informati
 
 * ``astropy_model = Sersic2D()`` - Any astropy 2D model
 * ``pool = None`` - Number of cores to parallelise likelihood calculations to
-* ``sampler = Nautilus`` - The nested sampler to use, other options include ``Dynesty``
+* ``sampler = 'Nautilus'`` - The nested sampler to use, other options include ``Dynesty``
 * ``oversample_boxlength = 15`` - Length of box in the centre of the image to perform oversampling in
 * ``oversample_factor = 10`` - Factor by which to oversample inside the above box
 * ``sextractor_clean = False`` - Whether or not to let Sextractor clean the images of other objects
