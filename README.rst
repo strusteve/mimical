@@ -70,6 +70,8 @@ You can fix any of the parameters in the Mimical prior by setting the first elem
 
 .. image:: docs/basic_workflow.png
 
+-----
+
 .. image:: docs/translate.png
 
 
