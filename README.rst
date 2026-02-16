@@ -65,16 +65,6 @@ with the generated model; this can be easily provided by the user with informati
 You can fix any of the parameters in the Mimical prior by setting the first element in the parameter tuple equal to either a float / int / list / ndarray. For instance, to keep ``x_0`` constant across all images, one would pass a float/int and choose the options ``('Polynomial', 0)``. Or, to supply the ``RMS`` for each image separately, one would pass a list/ndarray of length N\ :sub:`filters`\  and choose the options ``(Individual)``.
 
 
-**Workflow diagrams**
-
-
-.. image:: docs/basic_workflow.png
-
------
-
-.. image:: docs/translate.png
-
-
 
 
 
