@@ -96,11 +96,9 @@ class mimical(object):
 
         # Initiate the prior handler object, used to parse and translate priors and parameters.
         self.prior_handler = priorHandler(mimical_prior, self.filter_names, self.wavs)
-        self.sampler_prior = self.prior_handler.translate()
-        self.nmodel, self.nparam, self.ndim = self.prior_handler.calculate_dimensionality()
-        print(f"Fitting {self.nmodel}-parameter models with {self.nparam}-parameter Mimical fit with dimensionality {self.ndim}.")
+        print(f"Fitting {self.prior_handler.nmodel}-parameter models with {self.prior_handler.nparam}-parameter Mimical fit with dimensionality {self.prior_handler.ndim}.")
         self.sampler_prior_keys = self.prior_handler.generate_sampler_prior_keys()
-
+        print(self.sampler_prior_keys)
         # Set Sextractor criterion for definining closest object as noise
         if sextractor_target_maxdistancepix=='default':
             self.target_maxdistancepix = self.images_raw.shape[1]/5
@@ -115,6 +113,13 @@ class mimical(object):
             self.images = self.clean_images_sextractor()
         else:
             self.images = self.images_raw
+
+        # Define empty models for each filter
+        sersic_model = self.astropy_model
+        self.convolved_models = []
+        for i in range(len(self.wavs)):
+            self.convolved_models.append(pf.PSFConvolvedModel2D(sersic_model, psf=self.psfs[i], oversample=(self.images.shape[2]/2, self.images.shape[1]/2, self.oversample_boxlength, self.oversample_factor)))
+
 
         
 
@@ -188,9 +193,18 @@ class mimical(object):
         """ Returns the log-likelihood for a given parameter vector. """
 
         # Translate parameter vector into model parameters in each filter.
-        modelpars = self.prior_handler.revert(param_dict)[:,:self.nmodel]
-        rmsarr = self.prior_handler.revert(param_dict)[:,self.nmodel]
-        ftcarr = self.prior_handler.revert(param_dict)[:,self.nmodel+1]
+        reverted = self.prior_handler.revert(param_dict)
+
+        # Check within bounds
+        for j in range(len(list(self.user_prior.keys()))):
+            bounds = self.user_prior[list(self.user_prior.keys())[j]][0]
+            if (any(reverted[:,j] < bounds[0])) | (any(reverted[:,j] > bounds[1])):
+                return -9.99*10**99
+            
+
+        modelpars = reverted[:,:self.prior_handler.nmodel]
+        rmsarr = reverted[:,self.prior_handler.nmodel]
+        ftcarr = reverted[:,self.prior_handler.nmodel+1]
 
 
         # Define empty arrays for models and rms images.
@@ -211,12 +225,12 @@ class mimical(object):
             # If, for whatever reason, the model has NaNs, set to zero and blow up errors.
             if np.isnan(np.sum(model)):
                 models[i] = np.zeros_like(model)
-                rms[i] = np.zeros_like(model) + 1e99
+                rms[i] = np.zeros_like(model) + 10**99
 
             # Else, append to respective arrays.
             else:
                 models[i] = model
-                rms[i] = rmsarr[i] + ((ftcarr[i]**(-1/2))*np.sqrt(np.abs(model)))
+                rms[i] = np.sqrt(rmsarr[i]**2 + ((ftcarr[i]**(-1/2))*np.sqrt(np.abs(model)))**2)
 
         # Broadcast the 3D data and model arrays and sum through the resulting 3D log-likelihood array.
         segmask_3D = self.segmaps == 1
@@ -229,11 +243,7 @@ class mimical(object):
     def fit(self):
         """ Runs the nested sampler to sample models, and processes its output. """
 
-        # Define empty models for each filter
-        sersic_model = self.astropy_model
-        self.convolved_models = []
-        for i in range(len(self.wavs)):
-            self.convolved_models.append(pf.PSFConvolvedModel2D(sersic_model, psf=self.psfs[i], oversample=(self.images.shape[2]/2, self.images.shape[1]/2, self.oversample_boxlength, self.oversample_factor)))
+        self.sampler_prior = self.prior_handler.translate()
 
         # Check that the user specified prior contains the same parameters as the user specified model.
         if list(self.convolved_models[0].param_names) != list(self.user_prior.keys())[:-2]:
@@ -249,7 +259,7 @@ class mimical(object):
         # Run sampling with Nautilus
         if self.sampler == 'Nautilus':
             t0 = time.time()
-            sampler = Sampler(self.sampler_prior, self.lnlike, n_live=400, pool=self.pool, n_dim = self.nparam)
+            sampler = Sampler(self.sampler_prior, self.lnlike, n_live=400, pool=self.pool, n_dim = self.prior_handler.nparam)
             sampler.run(verbose=True)
             print(f"Sampling time (minutes): {(time.time()-t0)/60}")
             points, log_w, log_l = sampler.posterior()
@@ -258,11 +268,11 @@ class mimical(object):
         elif self.sampler == 'Dynesty':
             t0 = time.time()
             if self.pool==None:
-                sampler = DynamicNestedSampler(self.lnlike, self.sampler_prior, ndim = self.nparam, nlive=400)
+                sampler = DynamicNestedSampler(self.lnlike, self.sampler_prior, ndim = self.prior_handler.nparam, nlive=400)
                 sampler.run_nested()
             else:
                 with Pool(self.pool, self.lnlike, self.sampler_prior) as pool:
-                    sampler = DynamicNestedSampler(pool.loglike, pool.prior_transform, ndim = self.ndim, nlive=400, pool=pool)
+                    sampler = DynamicNestedSampler(pool.loglike, pool.prior_transform, ndim = self.prior_handler.nparam, nlive=400, pool=pool)
                     sampler.run_nested()
             print(f"Sampling time (minutes): {(time.time()-t0)/60}")
             results = sampler.results

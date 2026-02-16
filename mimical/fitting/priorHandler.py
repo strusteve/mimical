@@ -138,22 +138,24 @@ class priorHandler(object):
                 elif param_fit_type == "Polynomial":
 
                     theta[count] = (theta[count] * (param_prior_dist[1]-param_prior_dist[0])) + param_prior_dist[0]
+                    countinit = count
                     count+=1
+
                     poly_order = param_prior_traits[2]
+                    random_order = np.append(0, np.random.choice(np.arange(poly_order), size=poly_order, replace=False)+1)
 
                     # Calculate the conditional priors for higher order polynomial coefficients.
-                    for i in range(1,poly_order+1):
+                    for i in range(1, len(random_order)):
 
-                        prev_order = i-1
-                        prev_coeffs = theta[count-(prev_order+1):count]
-
-                        polywavs = np.power(self.wavs[-1]-self.wavs[0], np.arange(prev_order+1))
-                        prev_comps = prev_coeffs * polywavs
+                        prev_coeffs = theta[(countinit+random_order)[:i]]
+                        prev_polywavs = np.power(self.wavs[-1]-self.wavs[0], random_order[:i])
+                        prev_comps = prev_coeffs * prev_polywavs
                         prev_comps_summed = np.sum(prev_comps)
                             
-                        min = (param_prior_dist[0] - prev_comps_summed) / (np.power(self.wavs[-1]-self.wavs[0], i))
-                        max = (param_prior_dist[1] - prev_comps_summed) / (np.power(self.wavs[-1]-self.wavs[0], i))
-                        theta[count] = (theta[count] * (max-min)) + min
+                        min = (param_prior_dist[0] - prev_comps_summed) / (np.power(self.wavs[-1]-self.wavs[0], random_order[i]))
+                        max = (param_prior_dist[1] - prev_comps_summed) / (np.power(self.wavs[-1]-self.wavs[0], random_order[i]))
+                        
+                        theta[countinit+random_order[i]] = (theta[countinit+random_order[i]] * (max-min)) + min
                         count+=1
                     
                 else:
@@ -198,6 +200,7 @@ class priorHandler(object):
     def revert(self, param_dict):
         """ Translate a sampler sample into a sample of model parameters for each filter."""
 
+
         # Empty parameter array
         params_final = np.zeros((len(self.wavs), len(self.user_prior.keys())))
 
@@ -226,3 +229,32 @@ class priorHandler(object):
                 count+=poly_order+1 
 
         return params_final
+    
+
+    def check_priors_sampler(self, n):
+
+        unit_cube = np.random.rand(n, self.nparam)
+        samples_mimical = np.apply_along_axis(self.sampler_prior, 1, unit_cube)
+        
+        return samples_mimical, self.generate_sampler_prior_keys()
+    
+
+    def check_priors_mimical(self, n):
+
+        unit_cube = np.random.rand(n, self.nparam)
+        samples_mimical = np.apply_along_axis(lambda unit_vec: self.revert(self.sampler_prior(unit_vec)).flatten(), 1, unit_cube)
+        
+        # Save to .csv table
+        keys = []
+        for j in range(len(self.filter_names)):
+            for i in range(len(self.user_prior.keys())):
+                key = list(self.user_prior.keys())[i]
+                keys.append(f"{key}_{self.filter_names[j]}")
+
+
+        return samples_mimical, keys
+
+
+
+
+
