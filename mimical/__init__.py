@@ -1,4 +1,6 @@
 from . import fitting
 from . import plotting
 
-from .fitting import mimical
+from .fitting import fit
+from .fitting import fitCatalogue
+

@@ -65,7 +65,12 @@ with the generated model; this can be easily provided by the user with informati
 You can fix any of the parameters in the Mimical prior by setting the first element in the parameter tuple equal to either a float / int / list / ndarray. For instance, to keep ``x_0`` constant across all images, one would pass a float/int and choose the options ``('Polynomial', 0)``. Or, to supply the ``RMS`` for each image separately, one would pass a list/ndarray of length N\ :sub:`filters`\  and choose the options ``(Individual)``.
 
 
+**Parallelisation**
 
+Mimical can be parallelised to different cores in one of two ways. 
 
+* The likelihood calculations can be parallelised to different cores by useing the ``pool`` keyword argument. This is ideal for single object fits.
+* When using ``fit_catalogue``, the ``mpi_serial`` keyword arguement can be set to ``True`` for individual object fits to be parallelised to separate cores. With this option enabled, mimical must be run using ``mpirun/mpiexec -n [ncores] python [filename].py``. This is ideal for large catalogue fits.
 
+Running Mimical with both of these options enabled is **untested**.
 
