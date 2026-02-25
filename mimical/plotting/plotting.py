@@ -14,31 +14,62 @@ class plotter(object):
 
     def plot_median(self, images, wavs, convolved_models, samples, prior_handler, filter_names, segmaps):
         """ Plots the median posterior model."""
-
-        fig = plt.figure()
-        gs = fig.add_gridspec(nrows=4, ncols=images.shape[0]+1, width_ratios=np.append(np.ones(images.shape[0]), 0.25))
         
-        models = np.zeros((samples.shape[0], *images.shape))
+        # Pass segmaps through images
+        for i in range(len(wavs)):
+            images[i] *= segmaps[i]
 
+        # Initiate plot
+        fig = plt.figure()
+        gs = fig.add_gridspec(nrows=4, ncols=len(images)+1, width_ratios=np.append(np.ones(len(images)), 0.25))
+
+        # Create master lists for appending
+        master_models = []
+        master_residuals = []
+
+        # Loop over samples and wavelengths for generating models
         print("Computing median model image...")
         for j in tqdm(range(samples.shape[0])):
             param_dict = samples[j]
             pars = prior_handler.revert(param_dict)[:,:prior_handler.nmodel]
-
-            for k in range(len(wavs)):
-                convolved_models[k].parameters = pars[k]
-                model = discretize_model(model=convolved_models[k], 
-                                        x_range=[0,images[k].shape[1]], 
-                                        y_range=[0,images[k].shape[0]], 
+            models = []
+            residuals = []
+            for i in range(len(wavs)):
+                convolved_models[i].parameters = pars[i]
+                model = discretize_model(model=convolved_models[i], 
+                                        x_range=[0,images[i].shape[1]], 
+                                        y_range=[0,images[i].shape[0]], 
                                         mode='center')
-                models[j,k] = model * segmaps[k]
+                models.append(model * segmaps[i])
+                residuals.append(images[i] - (model * segmaps[i]))
+            master_models.append(models)
+            master_residuals.append(residuals)
 
-        models = np.median(models, axis=0)
-        residuals = images - models
+        # Parse model list into median model
+        median_models = []
+        median_residuals = []
+        for i in range(len(wavs)):
+            temp_model_arr = np.zeros((samples.shape[0], images[i].shape[0], images[i].shape[1]))
+            temp_residuals_arr = np.zeros((samples.shape[0], images[i].shape[0], images[i].shape[1]))
+            for j in range(samples.shape[0]):
+                temp_model_arr[j] = master_models[j][i]
+                temp_residuals_arr[j] = master_residuals[j][i]
+            median_models.append(np.median(temp_model_arr, axis=0))
+            median_residuals.append(np.median(temp_residuals_arr, axis=0))
 
-        vmins = [-np.percentile(images.flatten(), q=99), -np.percentile(images.flatten(), q=99), -np.percentile(images.flatten(), q=99), min(np.percentile(residuals.flatten(), q=1), -np.percentile(residuals.flatten(), q=99))]
-        vmaxs = [np.percentile(images.flatten(), q=99), np.percentile(images.flatten(), q=99), np.percentile(images.flatten(), q=99), max(-np.percentile(residuals.flatten(), q=1), np.percentile(residuals.flatten(), q=99))]
+        # Set vmins
+        vmins = [-max([np.percentile(x.flatten(), q=99) for x in images]), 
+                 -max([np.percentile(x.flatten(), q=99) for x in images]), 
+                 -max([np.percentile(x.flatten(), q=99) for x in images]), 
+                 min( min([np.percentile(x.flatten(), q=1) for x in median_residuals]), -max([-np.percentile(x.flatten(), q=99) for x in median_residuals]))]
 
+        # Set vmaxs
+        vmaxs = [max([np.percentile(x.flatten(), q=99) for x in images]), 
+                 max([np.percentile(x.flatten(), q=99) for x in images]), 
+                 max([np.percentile(x.flatten(), q=99) for x in images]), 
+                 max( -min([np.percentile(x.flatten(), q=1) for x in median_residuals]), max([-np.percentile(x.flatten(), q=99) for x in median_residuals]))]
+
+        # Initiate colorbars
         ax = fig.add_subplot(gs[0, 0])
         ax.set_axis_off()
         im1 = ax.pcolormesh(np.zeros_like(images[0]), vmax=vmaxs[0], vmin=vmins[0], cmap='RdGy', rasterized=True)
@@ -49,7 +80,6 @@ class plotter(object):
         tick_locator = ticker.MaxNLocator(nbins=5)
         cbar1.locator = tick_locator
         cbar1.update_ticks()
-
         im2 = ax.pcolormesh(np.zeros_like(images[0]), vmax=vmaxs[-1], vmin=vmins[-1], cmap='RdGy', rasterized=True)
         cbarax2 = fig.add_subplot(gs[3, -1])
         cbarax2.set_yticks([])
@@ -58,10 +88,11 @@ class plotter(object):
         tick_locator = ticker.MaxNLocator(nbins=3)
         cbar2.locator = tick_locator
         cbar2.update_ticks()
-
+        
+        # Loop over filters and plot
         for i in range(len(wavs)):
 
-            plotims = [images[i], models[i], residuals[i], residuals[i]]
+            plotims = [images[i], median_models[i], median_residuals[i], median_residuals[i]]
 
             for j in range(4):
 
@@ -82,35 +113,53 @@ class plotter(object):
                         ax.set_ylabel('Residual')
                     if j==3:
                         ax.set_ylabel('Residual\nZoom')
-
+        
         plt.subplots_adjust(hspace=0.1, wspace=0.1)
-        fig.set_size_inches(images.shape[0],4, forward=True)
+        fig.set_size_inches(len(images),4, forward=True)
+
+
 
 
     def plot_median_param(self, images, wavs, convolved_models, samples, prior_handler, filter_names, segmaps):
         """ Plots the median parameter posterior model."""
 
+        # Pass segmaps through images
+        for i in range(len(wavs)):
+            images[i] *= segmaps[i]
+
+        # Initiate plot
         fig = plt.figure()
-        gs = fig.add_gridspec(nrows=4, ncols=images.shape[0]+1, width_ratios=np.append(np.ones(images.shape[0]), 0.25))
+        gs = fig.add_gridspec(nrows=4, ncols=len(images)+1, width_ratios=np.append(np.ones(len(images)), 0.25))
         
         # Get median Nautilus parameters and transalte into median model parameters.
         param_dict = np.median(samples, axis=0)
         pars = prior_handler.revert(param_dict)[:,:prior_handler.nmodel]
 
-        models = np.zeros_like(images)
+        # Create master lists for appending
+        models = []
+        residuals = []
         for i in range(len(wavs)):
             convolved_models[i].parameters = pars[i]
             model = discretize_model(model=convolved_models[i], 
                                     x_range=[0,images[i].shape[1]], 
                                     y_range=[0,images[i].shape[0]], 
                                     mode='center')
-            models[i]=model * segmaps[i]
+            models.append(model * segmaps[i])
+            residuals.append((images[i] - model) * segmaps[i])
 
-        residuals = images - models
+        # Set vmins
+        vmins = [-max([np.percentile(x.flatten(), q=99) for x in images]), 
+                 -max([np.percentile(x.flatten(), q=99) for x in images]), 
+                 -max([np.percentile(x.flatten(), q=99) for x in images]), 
+                 min( min([np.percentile(x.flatten(), q=1) for x in residuals]), -max([-np.percentile(x.flatten(), q=99) for x in residuals]))]
+        
+        # Set vmaxs
+        vmaxs = [max([np.percentile(x.flatten(), q=99) for x in images]), 
+                 max([np.percentile(x.flatten(), q=99) for x in images]), 
+                 max([np.percentile(x.flatten(), q=99) for x in images]), 
+                 max( -min([np.percentile(x.flatten(), q=1) for x in residuals]), max([-np.percentile(x.flatten(), q=99) for x in residuals]))]
 
-        vmins = [-np.percentile(images.flatten(), q=99), -np.percentile(images.flatten(), q=99), -np.percentile(images.flatten(), q=99), min(np.percentile(residuals.flatten(), q=1), -np.percentile(residuals.flatten(), q=99))]
-        vmaxs = [np.percentile(images.flatten(), q=99), np.percentile(images.flatten(), q=99), np.percentile(images.flatten(), q=99), max(-np.percentile(residuals.flatten(), q=1), np.percentile(residuals.flatten(), q=99))]
-
+        # Initiate colorbars
         ax = fig.add_subplot(gs[0, 0])
         ax.set_axis_off()
         im1 = ax.pcolormesh(np.zeros_like(images[0]), vmax=vmaxs[0], vmin=vmins[0], cmap='RdGy', rasterized=True)
@@ -121,7 +170,6 @@ class plotter(object):
         tick_locator = ticker.MaxNLocator(nbins=5)
         cbar1.locator = tick_locator
         cbar1.update_ticks()
-
         im2 = ax.pcolormesh(np.zeros_like(images[0]), vmax=vmaxs[-1], vmin=vmins[-1], cmap='RdGy', rasterized=True)
         cbarax2 = fig.add_subplot(gs[3, -1])
         cbarax2.set_yticks([])
@@ -131,6 +179,7 @@ class plotter(object):
         cbar2.locator = tick_locator
         cbar2.update_ticks()
 
+        # Loop over filters and plot
         for i in range(len(wavs)):
 
             plotims = [images[i], models[i], residuals[i], residuals[i]]
@@ -156,5 +205,5 @@ class plotter(object):
                         ax.set_ylabel('Residual\nZoom')
         
         plt.subplots_adjust(hspace=0.1, wspace=0.1)
-        fig.set_size_inches(images.shape[0],4, forward=True)
+        fig.set_size_inches(len(images),4, forward=True)
 

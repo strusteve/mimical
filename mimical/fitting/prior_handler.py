@@ -163,12 +163,34 @@ class priorHandler(object):
 
             # For fixed params
             elif (type(param_prior_dist).__name__ == 'float') | (type(param_prior_dist).__name__ == 'int') | (type(param_prior_dist).__name__ == 'list') | (type(param_prior_dist).__name__ == 'ndarray'):
-            
+                
+                # If fixed for each individual filter, set for each separately
                 if param_fit_type == "Individual":
-                    for i in range(len(self.wavs)):
-                        theta[count] = param_prior_dist[i]
-                        count+=1
+                    
+                    # Helper for single image fit
+                    if len(self.wavs) == 1:
+                        if not type(param_prior_dist).__name__ == 'ndarray':
+                            theta[count] = param_prior_dist
+                            count+=1
+                        else:
+                            theta[count] = np.mean(param_prior_dist)
+                            count+=1
+                            
+                    # For multiple image fits
+                    else:
+                        for i in range(len(self.wavs)):
+                            # If use supplies single value for each filter, simply set.
+                            if not (type(param_prior_dist[i]).__name__ == 'ndarray'):
+                                theta[count] = param_prior_dist[i]
+                                count+=1
+                            # If user supplies values for each image pixel (pertinent for RMS etc.), then pass the
+                            # mean to the prior samples. This is required for generality but is overwritten later in the 
+                            # likelihood function.
+                            else:
+                                theta[count] = np.mean(param_prior_dist[i])
+                                count+=1
 
+                # If user supplies polynomial coefficients, set them.
                 elif param_fit_type == "Polynomial":
                     poly_order = param_prior_traits[2]
                     if poly_order==0:

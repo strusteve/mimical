@@ -18,10 +18,10 @@ Mimical can be installed with pip:
 
 **Required input**
 
-#. ``images`` - 3D image array with dimensions (N\ :sub:`filters`\, N\ :sub:`y`\, N\ :sub:`x`\)
-#. ``filt_list`` - An array of paths to filters curves of dimension N\ :sub:`filters`\
-#. ``psfs`` - 3D PSF array with dimensions (N\ :sub:`filters`\, M\ :sub:`y`\, M\ :sub:`x`\)
-#. ``mimical_prior`` - A Mimical prior
+#. ``images`` - An image array or list of image arrays with elements for each filter.
+#. ``filt_list`` - A path string  or list of path strings to the filter transmission curve files.
+#. ``psfs`` - A PSF image array or list of PSF image arrays with elements for each filter.
+#. ``mimical_prior`` - The Mimical prior
 
 
 **Mimical prior**
@@ -35,11 +35,11 @@ with the generated model; this can be easily provided by the user with informati
 
 ``mimical_prior = {}``
 
-| ``mimical_prior['amplitude'] = ((0, 10*images.max()), 'Individual')``
-| ``mimical_prior['r_eff'] = ((0, images.shape[2]), 'Polynomial', 1)``
+| ``mimical_prior['amplitude'] = ((0, 1), 'Individual')``
+| ``mimical_prior['r_eff'] = ((0, 50), 'Polynomial', 1)``
 | ``mimical_prior['n'] = ((0.1, 10), 'Polynomial', 1)``
-| ``mimical_prior['x_0'] = ((images.shape[2]/2-2, images.shape[2]/2+2), 'Polynomial', 0)``
-| ``mimical_prior['y_0'] = ((images.shape[1]/2-2, images.shape[1]/2+2), 'Polynomial', 0)``
+| ``mimical_prior['x_0'] = ((48, 52), 'Polynomial', 0)``
+| ``mimical_prior['y_0'] = ((48, 52), 'Polynomial', 0)``
 | ``mimical_prior['ellip'] = ((0,0.75), 'Polynomial', 0)``
 | ``mimical_prior['theta'] = ((0, np.pi), 'Polynomial', 0)``
 
@@ -62,15 +62,14 @@ with the generated model; this can be easily provided by the user with informati
 
 **Fixing parameters**
 
-You can fix any of the parameters in the Mimical prior by setting the first element in the parameter tuple equal to either a float / int / list / ndarray. For instance, to keep ``x_0`` constant across all images, one would pass a float/int and choose the options ``('Polynomial', 0)``. Or, to supply the ``RMS`` for each image separately, one would pass a list/ndarray of length N\ :sub:`filters`\  and choose the options ``(Individual)``.
+You can fix any of the parameters in the Mimical prior by setting the first element in the parameter tuple equal to either a float / int / list. For instance, to keep ``x_0`` constant across all images, one would pass a float/int and choose the options ``('Polynomial', 0)``. Or, to supply the ``RMS`` for each image separately, one would pass a list of length N\ :sub:`filters`\  and choose the options ``(Individual)``. If the user supplies arrays for ``RMS`` and ``flux-to-counts`` in the same shape as the ``images``, the corner plot samples will show the mean of these images for generality but the full arrays will be parsed in the likelihood function.
 
 
 **Parallelisation**
 
 Mimical can be parallelised to different cores in one of two ways. 
 
-* The likelihood calculations can be parallelised to different cores by using the ``pool`` keyword argument. This is ideal for single object fits.
-* When using ``fit_catalogue``, the ``mpi_serial`` keyword argument can be set to ``True`` which sends individual object fits to separate cores. With this option enabled, mimical must be run using ``mpirun/mpiexec -n [ncores] python [filename].py``. This is ideal for large catalogue fits.
+* The likelihood calculations can be parallelised to different cores by useing the ``pool`` keyword argument. This is ideal for single object fits.
+* When using ``fit_catalogue``, the ``mpi_serial`` keyword arguement can be set to ``True`` for individual object fits to be parallelised to separate cores. With this option enabled, mimical must be run using ``mpirun/mpiexec -n [ncores] python [filename].py``. This is ideal for large catalogue fits.
 
 Running Mimical with both of these options enabled is **untested**.
-
