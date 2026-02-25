@@ -13,7 +13,7 @@ Mimical can be installed with pip:
     pip install mimical
 
 
-.. image:: docs/median_model_example.png
+.. image:: docs/median_model_example_plot.png
 
 
 **Required input**
