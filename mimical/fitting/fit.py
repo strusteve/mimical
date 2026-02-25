@@ -127,10 +127,13 @@ class fit(object):
         # Sort the filter information is order of ascending wavelength
         if not len(self.wavs)==1:
             sorter = np.argsort(self.wavs)
+            self.wavs = [self.wavs[x] for x in sorter]
+            self.filter_names = [self.filter_names[x] for x in sorter]
             self.images = [self.images[x] for x in sorter]
             self.filt_list = [self.filt_list[x] for x in sorter]
             self.psfs = [self.psfs[x] for x in sorter]
             self.segmaps = [self.segmaps[x] for x in sorter]
+
             for key in self.mimical_prior.keys():
                 if (type(self.mimical_prior[key][0]).__name__ == 'list'):
                     self.mimical_prior[key] = ([self.mimical_prior[key][0][x] for x in sorter], *self.mimical_prior[key][1:])
@@ -276,7 +279,7 @@ class fit(object):
             # Run sampling with Nautilus
             if self.sampler == 'Nautilus':
                 t0 = time.time()
-                sampler = Sampler(self.sampler_prior, self.lnlike, n_live=400, pool=self.pool, n_dim = self.prior_handler.nparam)
+                sampler = Sampler(self.sampler_prior, self.lnlike, n_live=400, pool=self.pool, n_dim = self.prior_handler.ndim)
                 sampler.run(verbose=True)
                 print(f"Sampling time (minutes): {(time.time()-t0)/60}")
                 self.points, self.log_w, log_l = sampler.posterior()
@@ -285,11 +288,11 @@ class fit(object):
             elif self.sampler == 'Dynesty':
                 t0 = time.time()
                 if self.pool==None:
-                    sampler = DynamicNestedSampler(self.lnlike, self.sampler_prior, ndim = self.prior_handler.nparam, nlive=400)
+                    sampler = DynamicNestedSampler(self.lnlike, self.sampler_prior, ndim = self.prior_handler.ndim, nlive=400)
                     sampler.run_nested()
                 else:
                     with Pool(self.pool, self.lnlike, self.sampler_prior) as pool:
-                        sampler = DynamicNestedSampler(pool.loglike, pool.prior_transform, ndim = self.prior_handler.nparam, nlive=400, pool=pool)
+                        sampler = DynamicNestedSampler(pool.loglike, pool.prior_transform, ndim = self.prior_handler.ndim, nlive=400, pool=pool)
                         sampler.run_nested()
                 print(f"Sampling time (minutes): {(time.time()-t0)/60}")
                 results = sampler.results
@@ -324,7 +327,7 @@ class fit(object):
         samples_df.to_csv(dir_path+f"/mimical/posteriors{runtag}/{self.id}_samples.txt", sep=' ', index=False)
 
         # Plot and save the corner plot
-        corner.corner(self.points, weights=np.exp(self.log_w), bins=20, labels=np.array(self.sampler_prior_keys), color='black', plot_datapoints=False, range=np.repeat(0.999, len(self.sampler_prior_keys)))
+        corner.corner(self.points.T[self.prior_handler.samplemask].T, weights=np.exp(self.log_w), bins=20, labels=np.array(self.sampler_prior_keys)[self.prior_handler.samplemask], color='black', plot_datapoints=False, range=np.repeat(0.999, np.sum(self.prior_handler.samplemask)))
         plt.savefig(dir_path+f'/mimical/plots{runtag}/{self.id}_corner.pdf', bbox_inches='tight')
 
         # Return the median-parameter model
