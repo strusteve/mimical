@@ -13,7 +13,7 @@ Mimical can be installed with pip:
     pip install mimical
 
 
-.. image:: docs/median_model_example_plot.png
+.. image:: docs/median_model_example.png
 
 
 **Required input**
@@ -29,8 +29,8 @@ Mimical can be installed with pip:
 Below is an example ``mimical_prior`` for a run using the default astropy sersic model. The first set of element keys must match 
 the astropy model parameter names. Following this, the next element, named ``psf_pa``, traces the rotation of the PSF.
 The final two elements must be named ``rms`` and ``flux_to_counts``. The ``rms`` parameter traces the RMS noise in the image; 
-this can be fit with Mimical but it is **highly recommended to provide it** to reduce dimensionality 
-(see **Fixing parameters**). This is likewise for ``flux_to_counts``, which helps Mimical calculate the poisson uncertainty associated
+this can be fit with Mimical but it is **highly recommended to provide it** to reduce dimensionality , ideally as a list of arrays of the same shape as ``images`` 
+or failing that as a list of floats (see **Fixing parameters**). This is likewise for ``flux_to_counts``, which helps Mimical calculate the poisson uncertainty associated
 with the generated model; this can be easily provided by the user with information on the gain and exposure time.
 
 ``mimical_prior = {}``
@@ -69,7 +69,7 @@ You can fix any of the parameters in the Mimical prior by setting the first elem
 
 Mimical can be parallelised to different cores in one of two ways. 
 
-* The likelihood calculations can be parallelised to different cores by useing the ``pool`` keyword argument. This is ideal for single object fits.
+* The likelihood calculations can be parallelised to different cores by using the ``pool`` keyword argument. This is ideal for single object fits.
 * When using ``fit_catalogue``, the ``mpi_serial`` keyword arguement can be set to ``True`` for individual object fits to be parallelised to separate cores. With this option enabled, mimical must be run using ``mpirun/mpiexec -n [ncores] python [filename].py``. This is ideal for large catalogue fits.
 
 Running Mimical with both of these options enabled is **untested**.

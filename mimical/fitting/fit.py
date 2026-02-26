@@ -363,10 +363,12 @@ class fit(object):
                 df.to_csv(dir_path+f'/mimical/cats{runtag}.csv', index=False)
             else:
                 ridden = pd.read_csv(dir_path+f'/mimical/cats{runtag}.csv')
-                ridden.index = ridden['id'].values
-                ridden.loc[self.id] = df.values[0]
-                ridden.to_csv(dir_path+f'/mimical/cats{runtag}.csv', index=False)
-
+                ridden.index = ridden['id'].values.astype('str')
+                if self.id not in ridden.index.values:
+                    ridden.loc[self.id] = df.values[0]
+                    ridden.to_csv(dir_path+f'/mimical/cats{runtag}.csv', index=False)
+                else:
+                    print('Object already written to catalogue.')
 
     def plot_model(self, type='median', runtag=''):
         """ Wrapper to plot models. """
@@ -379,4 +381,7 @@ class fit(object):
             # Plot and save the median-parameter fit
             plotter().plot_median_param(self.images, self.wavs, self.convolved_models, self.samples, self.prior_handler, self.filter_names, self.segmaps)
             plt.savefig(dir_path+f'/mimical/plots{runtag}/{self.id}_median_param_model.pdf', bbox_inches='tight', dpi=500)
+        
+        else:
+            raise Exception("Please choose either 'median' or 'median-param' for plot type.")
 
