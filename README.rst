@@ -28,26 +28,30 @@ Mimical can be installed with pip:
 
 Below is an example ``mimical_prior`` for a run using the default astropy sersic model. The first set of element keys must match 
 the astropy model parameter names. Following this, the next element, named ``psf_pa``, traces the rotation of the PSF.
-The final two elements must be named ``rms`` and ``flux_to_counts``. The ``rms`` parameter traces the RMS noise in the image; 
-this can be fit with Mimical but it is **highly recommended to provide it** to reduce dimensionality , ideally as a list of arrays of the same shape as ``images`` 
-or failing that as a list of floats (see **Fixing parameters**). This is likewise for ``flux_to_counts``, which helps Mimical calculate the poisson uncertainty associated
-with the generated model; this can be easily provided by the user with information on the gain and exposure time.
+The final two elements must be named ``rms`` and ``counts_per_flux``.
 
-``mimical_prior = {}``
+.. code::
 
-| ``mimical_prior['amplitude'] = ((0, 1), 'Individual')``
-| ``mimical_prior['r_eff'] = ((0, 50), 'Polynomial', 1)``
-| ``mimical_prior['n'] = ((0.1, 10), 'Polynomial', 1)``
-| ``mimical_prior['x_0'] = ((48, 52), 'Polynomial', 0)``
-| ``mimical_prior['y_0'] = ((48, 52), 'Polynomial', 0)``
-| ``mimical_prior['ellip'] = ((0,0.75), 'Polynomial', 0)``
-| ``mimical_prior['theta'] = ((0, np.pi), 'Polynomial', 0)``
+     mimical_prior = {}
 
-| ``mimical_prior['psf_pa'] = ((-180, 180), 'Polynomial', 0)``
+     mimical_prior['amplitude'] = ((0, 1), 'Individual')
+     mimical_prior['r_eff'] = ((0, 50), 'Polynomial', 1)
+     mimical_prior['n'] = ((0.1, 10), 'Polynomial', 1)
+     mimical_prior['x_0'] = ((48, 52), 'Polynomial', 0)
+     mimical_prior['y_0'] = ((48, 52), 'Polynomial', 0)
+     mimical_prior['ellip'] = ((0,0.75), 'Polynomial', 0)
+     mimical_prior['theta'] = ((0, np.pi), 'Polynomial', 0)
 
-| ``mimical_prior['rms'] = ((0,1), 'Individual')``
-| ``mimical_prior['flux_to_counts'] = ((1,1e6), 'Individual')``
-|
+     mimical_prior['psf_pa'] = ((-180, 180), 'Polynomial', 0)
+
+     mimical_prior['rms'] = ('Infer',)``
+     mimical_prior['counts_per_flux'] = (cpf_list, 'Individual')
+
+The ``rms`` parameter traces the RMS noise in the image; this can be fit with Mimical but it is **highly recommended to fix it** in order to reduce dimensionality (see **Fixing parameters**), either by passing it in as a ``float`` / ``list`` of ``floats`` / ``list`` of ``arrays`` of the same shape as ``images``, or by selecting the special Mimical prior type ``'Infer'``. This automatically calculates the RMS of the image background as identified by Source Extractor.
+
+Similarly for ``counts_per_flux``, which helps Mimical calculate the poisson uncertainty associated
+with the generated model, it is recommended to fix it to a provided quantity (float / list of floats / list of arrays of the same shape as ``images``). This can be easily provided by the user with information on the gain and exposure time etc.
+
 
 **Optional input and parameters**
 
@@ -62,12 +66,12 @@ with the generated model; this can be easily provided by the user with informati
 
 **Fixing parameters**
 
-You can fix any of the parameters in the Mimical prior by setting the first element in the parameter tuple equal to either a float / int / list. For instance, to keep ``x_0`` constant across all images, one would pass a float/int and choose the options ``('Polynomial', 0)``. Or, to supply the ``RMS`` for each image separately, one would pass a list of length N\ :sub:`filters`\  and choose the options ``(Individual)``. If the user supplies arrays for ``RMS`` and ``flux-to-counts`` in the same shape as the ``images``, the corner plot samples will show the mean of these images for generality but the full arrays will be parsed in the likelihood function.
+You can fix any of the parameters in the Mimical prior by setting the first element in the parameter tuple equal to either a float / int / list. For instance, to keep ``x_0`` constant across all images, one would pass a float/int and choose the options ``(float/int, 'Polynomial', 0)``. Or, to supply the ``RMS`` for each image separately, one would pass a list of length N\ :sub:`filters`\  and choose the options ``(list, 'Individual')``. If the user supplies arrays for ``RMS`` and ``counts-per-flux`` in the same shape as the ``images``, the corner plot samples will show the mean of these images for generality, but the full arrays will be parsed in the likelihood function.
 
 
 **Parallelisation**
 
-Mimical can be parallelised to different cores in one of two ways. 
+Mimical can be parallelised to different cores in one of two ways:
 
 * The likelihood calculations can be parallelised to different cores by using the ``pool`` keyword argument. This is ideal for single object fits.
 * When using ``fit_catalogue``, the ``mpi_serial`` keyword arguement can be set to ``True`` for individual object fits to be parallelised to separate cores. With this option enabled, mimical must be run using ``mpirun/mpiexec -n [ncores] python [filename].py``. This is ideal for large catalogue fits.

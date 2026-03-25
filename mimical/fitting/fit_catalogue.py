@@ -22,10 +22,7 @@ from ..utils import mpi_split_array
 
 
 class fitCatalogue(object):
-    """ Mimical is an intensity modelling code for multiply-imaged objects, 
-    performing simultaenous Bayseian inference of model parameters via the 
-    nested sampling algorithm. Mimical supports any astropy 2D model, and 
-    supports user defined parameter polynomial depenency with image wavelength.
+    """ Fit a catalogue of singly- or multiply-imaged objects with a 2D model via Bayesian inference.
 
     Parameters
     ----------
@@ -69,7 +66,7 @@ class fitCatalogue(object):
         self.kwargs = kwargs
 
         
-    def run(self, mpi_serial=False, make_plots=False, plot_type='median'):
+    def run(self, mpi_serial=False, make_plots=False, plot_type='best'):
         """ Runs the nested sampler to sample models, and processes its output.
          
         Parameters
@@ -82,16 +79,16 @@ class fitCatalogue(object):
 
         if not mpi_serial:
             for id in self.id_list:
-                single = fit(id, self.load_images(id), self.load_filt_list(id), self.load_psfs(id), self.load_mimical_prior(id), **self.kwargs)
-                single.run(runtag="/"+self.runtag)
+                single = fit(id, self.load_images(id), self.load_filt_list(id), self.load_psfs(id), self.load_mimical_prior(id), runtag="/"+self.runtag, **self.kwargs)
+                single.run()
                 if make_plots:
-                    single.plot_model(type=plot_type, runtag="/"+self.runtag)
+                    single.plot_model(type=plot_type)
     
         else:
             id_core = mpi_split_array(np.array((self.id_list)))
             for id in id_core:
-                single = fit(id, self.load_images(id), self.load_filt_list(id), self.load_psfs(id), self.load_mimical_prior(id), **self.kwargs)
-                single.run(runtag="/"+self.runtag)
+                single = fit(id, self.load_images(id), self.load_filt_list(id), self.load_psfs(id), self.load_mimical_prior(id), runtag="/"+self.runtag, **self.kwargs)
+                single.run()
         
         
     
