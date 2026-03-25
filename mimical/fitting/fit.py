@@ -160,6 +160,7 @@ class fit(object):
         else:
             self.target_maxdistancepix = sextractor_target_maxdistancepix
 
+        self.dilute = dilute
         self.dilute_radius = dilute_radius
 
         # Code-timing interface
@@ -280,7 +281,7 @@ class fit(object):
 
         # Run SExtractor cleaning step if desired
         if self.sextractor_clean == True:
-            self.contmaps = create_contmaps(self.id, self.wavs, self.images, self.filter_names, self.contmaps, self.target_maxdistancepix, self.dilute_radius, self.runtag)
+            self.contmaps = create_contmaps(self.id, self.wavs, self.images, self.filter_names, self.contmaps, self.target_maxdistancepix, self.dilute, self.dilute_radius, self.runtag)
 
         # Check that the user specified prior contains all the parameters as the user specified 2D model
         if list(self.convolved_models[0].param_names) != list(self.mimical_prior.keys())[:-2]:

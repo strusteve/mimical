@@ -66,7 +66,7 @@ class fitCatalogue(object):
         self.kwargs = kwargs
 
         
-    def run(self, mpi_serial=False, make_plots=False, plot_type='best'):
+    def run(self, mpi_serial=False, make_plots=False):
         """ Runs the nested sampler to sample models, and processes its output.
          
         Parameters
@@ -82,7 +82,7 @@ class fitCatalogue(object):
                 single = fit(id, self.load_images(id), self.load_filt_list(id), self.load_psfs(id), self.load_mimical_prior(id), runtag="/"+self.runtag, **self.kwargs)
                 single.run()
                 if make_plots:
-                    single.plot_model(type=plot_type)
+                    single.plot_model()
     
         else:
             id_core = mpi_split_array(np.array((self.id_list)))
