@@ -1,23 +1,6 @@
 import numpy as np
-import matplotlib.pyplot as plt
-import petrofit as pf
-from astropy.convolution.utils import discretize_model
-import corner
-from nautilus import Sampler
-import time
-import os
-from astropy.modeling import models
-import pandas as pd
-from tqdm import tqdm
-from dynesty import DynamicNestedSampler
-from dynesty.pool import Pool
-from astropy.io import fits
-from astropy.io import ascii
 
 from .fit import fit
-from .prior_handler import priorHandler
-from ..plotting import plotter
-from ..utils import filter_set
 from ..utils import mpi_split_array
 
 
@@ -72,7 +55,7 @@ class fitCatalogue(object):
         Parameters
         ----------
 
-        mpir_serial : False
+        mpi_serial : False
             Whether or not to split ID list among cores, must run script with command
             'mpirun/mpiexec -n [ncores] python [file].
         """
@@ -89,6 +72,7 @@ class fitCatalogue(object):
             for id in id_core:
                 single = fit(id, self.load_images(id), self.load_filt_list(id), self.load_psfs(id), self.load_mimical_prior(id), runtag="/"+self.runtag, **self.kwargs)
                 single.run()
-        
+                if make_plots:
+                    single.plot_model()
         
     

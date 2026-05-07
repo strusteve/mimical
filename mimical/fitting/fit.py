@@ -1,23 +1,17 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import petrofit as pf
-from astropy.convolution.utils import discretize_model
 import corner
 from nautilus import Sampler
 import time
 import os
-from astropy.modeling import models
 import pandas as pd
-from tqdm import tqdm
-from dynesty import DynamicNestedSampler
-from dynesty.pool import Pool
-from astropy.io import fits
-from astropy.io import ascii
 
-from .prior_handler import priorHandler
-from ..plotting import plotter
+from ..priors.prior_handler import priorHandler
+from ..plotting import plotting
 from ..utils import filter_set
 from ..utils import create_contmaps
+from ..models.submodels import Sersic
+from ..models.imagemodel import ImageModel
 
 dir_path = os.getcwd()
 if not os.path.isdir(dir_path + "/mimical"):
@@ -28,7 +22,6 @@ if not os.path.isdir(dir_path + "/mimical"):
 
 install_dir = os.path.dirname(os.path.realpath(__file__))
 sextractor_dir = (install_dir + "/utils/sextractor_config").replace("/fitting","")
-
 
 
 class fit(object):
@@ -55,15 +48,12 @@ class fit(object):
         and passes information about whether to let these vary for each filter or
         whether they follow an order-specified polynomial relationship.
 
-    astropy_model : array
+    submodel : array
         Astropy Fittable2DModel used to model the image data. The subsequent prior must include
         only and all parameters in the astropy_model.parameters variable, as well as a 'psf_pa' parameter.\
         
     pool : none or int
         Number of cores to parallelise likelihood calculations to.
-
-    sampler : str
-        Which sampler to use. Choice of Nautilus or Dynesty
 
     oversample_boxlength : int
         Width of box about image center to oversample within.
@@ -77,14 +67,26 @@ class fit(object):
     sextractor_target_maxdistancepix : str or float
         The distance after which the closest detected source is considered a contaminant.
         Necessary for images in which the target is undetected.
+
+    dilute : bool
+        Whether or not to apply a circular miminum filter over the contamination map to dilute it.
+
+    dilute_radius : int
+        If dilute is 'True', apply minimim filter with radius 'dilute_radius' over the contamination map.
+    
+    oversample : int or list
+        Oversample factor for the entire image or annuli defined by oversample radii.
+    
+    oversample_radii : int or list
+        Radii in which to oversample.
+
     """
 
 
 
     def __init__(self, id, images, filt_list, psfs, mimical_prior, 
-                 astropy_model=models.Sersic2D(), pool=None, sampler='Nautilus', 
-                 oversample_boxlength=15, oversample_factor=10, sextractor_clean=False,
-                 sextractor_target_maxdistancepix='default', dilute=False, dilute_radius=6, runtag=''):
+                 submodel=Sersic(), pool=None, sextractor_clean=False,
+                 sextractor_target_maxdistancepix='default', dilute=False, dilute_radius=1, runtag='', oversample=1, oversample_radii=[0]):
         
         # Start the clock
         self.genesis = time.time()
@@ -94,12 +96,12 @@ class fit(object):
         print(f"Fitting object {self.id}.")
 
         # Helper if only one image is being fitted
-        if type(images).__name__ == 'ndarray':
+        if isinstance(images, np.ndarray):
             filt_list = [filt_list]
             self.images = [images]
             self.psfs = [psfs]
             self.contmaps = [np.ones_like(images)]
-        elif type(images).__name__ == 'list':
+        elif isinstance(images, list):
             self.images = images
             self.filt_list = filt_list
             self.psfs = psfs
@@ -111,21 +113,24 @@ class fit(object):
         self.mimical_prior = mimical_prior
 
         # Set keyword arguments
-        self.astropy_model = astropy_model
+        self.submodel = submodel
         self.pool = pool
-        self.sampler = sampler
-        self.oversample_boxlength = oversample_boxlength
-        self.oversample_factor = oversample_factor
         self.sextractor_clean = sextractor_clean
         self.runtag = runtag
-
+        self.oversampling_radii = oversample_radii
+        self.oversampling_factors = oversample
 
         # Find the names and effective wavelengths of image filters
         self.filter_names = [x.split('/')[-1] for x in filt_list]
         self.wavs = filter_set([dir_path+'/'+x for x in filt_list]).eff_wavs / 1e4
 
+        # If single image fit, make mimical prior verbose.
+        if len(self.wavs)==1:
+            for i in mimical_prior:
+                mimical_prior[i] = (mimical_prior[i], 'Individual')
+
         # Sort the image information in order of ascending wavelength
-        if not len(self.wavs)==1:
+        else:
             sorter = np.argsort(self.wavs)
             self.wavs = [self.wavs[x] for x in sorter]
             self.filter_names = [self.filter_names[x] for x in sorter]
@@ -134,34 +139,35 @@ class fit(object):
             self.psfs = [self.psfs[x] for x in sorter]
             self.contmaps = [self.contmaps[x] for x in sorter]
             for key in self.mimical_prior.keys():
-                if (type(self.mimical_prior[key][0]).__name__ == 'list'):
+                if isinstance(self.mimical_prior[key][0], list):
                     self.mimical_prior[key] = ([self.mimical_prior[key][0][x] for x in sorter], *self.mimical_prior[key][1:])
-                elif (type(self.mimical_prior[key][0]).__name__ == 'ndarray'):
+                elif isinstance(self.mimical_prior[key][0], np.ndarray):
                     raise Exception("If specifying values for each filter, please pass these in with a list, not an ndarray.")
                 else:
                     continue
 
-        # Initiate the prior handler object, used to parse and translate priors and parameters
-        self.prior_handler = priorHandler(mimical_prior, self.filter_names, self.wavs, self.images, self.runtag, self.id)
-        self.sampler_prior_keys = self.prior_handler.generate_sampler_prior_keys()
-        print(f"Fitting {self.prior_handler.nmodel}-parameter models with" +
-                      f"{self.prior_handler.nparam}-parameter Mimical fit with dimensionality" +
-                      f"{self.prior_handler.ndim}.")
-
-        # Define dummy models for each filter, quicker to update parameters than create new models in the likelihood
-        sersic_model = self.astropy_model
-        self.convolved_models = []
-        for i in range(len(self.wavs)):
-            self.convolved_models.append(pf.PSFConvolvedModel2D(sersic_model, psf=self.psfs[i], oversample=(self.images[i].shape[1]/2, self.images[i].shape[0]/2, self.oversample_boxlength, self.oversample_factor)))
-
-        # Set the SExtractor criterion for definining the closest object as noise
+        # Set and run SourceExtractor if desired
         if sextractor_target_maxdistancepix=='default':
-            self.target_maxdistancepix = self.images[0].shape[0]/5
+            self.target_maxdistancepix = (self.images[0].shape[0]-1)/5
         else:
             self.target_maxdistancepix = sextractor_target_maxdistancepix
-
         self.dilute = dilute
         self.dilute_radius = dilute_radius
+        if self.sextractor_clean == True:
+            self.contmaps = create_contmaps(self.id, self.wavs, self.images, self.filter_names, self.contmaps, self.target_maxdistancepix, self.dilute, self.dilute_radius, self.runtag)
+
+        # Initiate the prior handler object, used to parse and translate priors and parameters
+        self.prior_handler = priorHandler(mimical_prior, self.filter_names, self.wavs, self.images, self.runtag, self.id)
+        self.sampler_prior_keys = self.prior_handler.keys
+        print(f"Fitting -{self.prior_handler.nmodel}- parameter submodels with" +
+                     f" -{self.prior_handler.nparam}- parameter Mimical fit with dimensionality" +
+                     f" -{self.prior_handler.ndim}-.")
+
+        # Define dummy models for each filter, quicker to update parameters than create new models in the likelihood
+        self.submodel = submodel
+        self.image_models = []
+        for i in range(len(self.wavs)):
+            self.image_models.append(ImageModel(self.submodel, psf=self.psfs[i], oversampling_radii=self.oversampling_radii, oversampling_factors=self.oversampling_factors))
 
         # Code-timing interface
         self.calls = 0
@@ -177,7 +183,7 @@ class fit(object):
         # Check if sampled model paramters are all within bounds, if not - blow up
         for j in range(len(list(self.mimical_prior.keys()))):
             bounds = self.mimical_prior[list(self.mimical_prior.keys())[j]][0]
-            if type(bounds).__name__ == "tuple":
+            if isinstance(bounds, tuple):
                 if (any(reverted[:,j] < bounds[0])) | (any(reverted[:,j] > bounds[1])): return -9.99*10**99
             else: continue
         
@@ -187,22 +193,22 @@ class fit(object):
         cpfarr = reverted[:,self.prior_handler.nmodel+1]
 
         # If user provides RMS values, override prior sample - necessary to recover full arrays
-        if not (type(self.mimical_prior['rms'][0]).__name__ == 'tuple'):
-            if (type(self.mimical_prior['rms'][0]).__name__ == 'list'):
-                if (type(self.mimical_prior['rms'][0][0]).__name__ == 'ndarray'):
+        if not isinstance(self.mimical_prior['rms'][0], tuple):
+            if isinstance(self.mimical_prior['rms'][0], list):
+                if isinstance(self.mimical_prior['rms'][0][0], np.ndarray):
                     rmsarr = self.mimical_prior['rms'][0]
-            elif (len(self.wavs) == 1) & ((type(self.mimical_prior['rms'][0]).__name__ == 'ndarray')):
+            elif (len(self.wavs) == 1) & (isinstance(self.mimical_prior['rms'][0], np.ndarray)):
                 rmsarr = [self.mimical_prior['rms'][0]]
             # If user wants mimical to infer RMS from image background, do so
-            elif (type(self.mimical_prior['rms'][0]).__name__ == 'str') & (self.mimical_prior['rms'][0] == "Infer"):
-                    if not self.sextractor_clean: raise Exception("If using Infer special type for RMS, must set sextractor_clean=True.")
+            elif (isinstance(self.mimical_prior['rms'][0], str)) & (self.mimical_prior['rms'][0] == "Infer"):
+                    if not self.sextractor_clean: raise Exception("If using 'Infer' special type for RMS, must set sextractor_clean=True.")
 
         # If user provides counts-per-flux parameters, override prior sample - necessary to recover full arrays
-        if not (type(self.mimical_prior['counts_per_flux'][0]).__name__ == 'tuple'):
-            if (type(self.mimical_prior['counts_per_flux'][0]).__name__ == 'list'):
-                if ((type(self.mimical_prior['counts_per_flux'][0][0]).__name__ == 'ndarray')):
+        if not isinstance(self.mimical_prior['counts_per_flux'][0], tuple):
+            if isinstance(self.mimical_prior['counts_per_flux'][0], list):
+                if isinstance(self.mimical_prior['counts_per_flux'][0][0], np.ndarray):
                     cpfarr = self.mimical_prior['counts_per_flux'][0]
-            elif (len(self.wavs) == 1) & (type(self.mimical_prior['counts_per_flux'][0]).__name__ == 'ndarray'):
+            elif (len(self.wavs) == 1) & (isinstance(self.mimical_prior['counts_per_flux'][0], np.ndarray)):
                 cpfarr = [self.mimical_prior['counts_per_flux'][0]]
 
         residuals_arr = []
@@ -212,11 +218,9 @@ class fit(object):
         for i in range(len(self.wavs)):
 
             # Update the model and evaluate over a pixel grid.
-            self.convolved_models[i].parameters = modelpars[i]
-            model = discretize_model(model=self.convolved_models[i], 
-                                        x_range=[0,self.images[i].shape[1]], 
-                                        y_range=[0,self.images[i].shape[0]], 
-                                        mode='center')
+            self.image_models[i].update_parameters(modelpars[i])
+            model = self.image_models[i].render(np.arange(self.images[i].shape[1]), np.arange(self.images[i].shape[0]))
+
 
             # If, for whatever reason, the model has NaNs, set to zero and blow up errors.
             if np.isnan(np.sum(model)):
@@ -228,7 +232,7 @@ class fit(object):
             else:
                 sigma = np.sqrt(rmsarr[i]**2 + ((cpfarr[i]**(-1/2))*np.sqrt(np.abs(model)))**2)
                 #sigma = np.zeros_like(model) + rmsarr[i]
-                if type(sigma).__name__ == 'ndarray':
+                if isinstance(sigma, np.ndarray):
                     sigma[(~np.isfinite(sigma)) | (sigma==0)] = 1e99
 
             # Calculate the 3D mask
@@ -244,28 +248,13 @@ class fit(object):
 
         
             
-
     def lnlike(self, param_dict):
         """ Returns the log-likelihood for a given parameter vector. """
 
-        # Set likelihood clock
-        time0 = time.time()
-
         residuals, sigma = self.get_residuals(param_dict)        
-
         norm = np.log((1/(np.sqrt(2*np.pi*(sigma**2)))))
         log_like_array = norm + ((-(residuals)**2) / (2*(sigma**2)))
         log_like = np.sum(log_like_array)
-
-        '''
-        self.calls += 1
-        self.calltime += time.time()-time0
-        if self.calls % 1000 == 0:
-            print(f"Average call time: {1000*(self.calltime/self.calls)}")
-            print(f"Average bug time: {(1000*(self.bugtime/self.calls))} ")
-            print(f"Average bug time: {((self.bugtime/self.calls)/(self.calltime/self.calls))*100} %")
-            print(' ')
-        '''
 
         return(log_like)
 
@@ -279,12 +268,8 @@ class fit(object):
             os.system('mkdir ' + dir_path + f"/mimical/plots{self.runtag}")
             os.system('mkdir ' + dir_path + f"/mimical/posteriors{self.runtag}")
 
-        # Run SExtractor cleaning step if desired
-        if self.sextractor_clean == True:
-            self.contmaps = create_contmaps(self.id, self.wavs, self.images, self.filter_names, self.contmaps, self.target_maxdistancepix, self.dilute, self.dilute_radius, self.runtag)
-
         # Check that the user specified prior contains all the parameters as the user specified 2D model
-        if list(self.convolved_models[0].param_names) != list(self.mimical_prior.keys())[:-2]:
+        if list(self.image_models[0].param_names) != list(self.mimical_prior.keys())[:-2]:
             raise Exception("Prior labels do not match model parameters.")
         
         # Check if a posterior already exists for the object being fitted, if so load it
@@ -300,34 +285,11 @@ class fit(object):
         else:
             # Set the sampler prior
             self.sampler_prior = self.prior_handler.sampler_prior
-
-            # Run sampling with Nautilus
-            if self.sampler == 'Nautilus':
-                t0 = time.time()
-                sampler = Sampler(self.sampler_prior, self.lnlike, n_live=400, pool=self.pool, n_dim = self.prior_handler.ndim)
-                sampler.run(verbose=True)
-                print(f"Sampling time (minutes): {(time.time()-t0)/60}")
-                self.points, self.log_w, self.log_l = sampler.posterior()
-
-            # Run sampling with Dynesty
-            elif self.sampler == 'Dynesty':
-                t0 = time.time()
-                if self.pool==None:
-                    sampler = DynamicNestedSampler(self.lnlike, self.sampler_prior, ndim = self.prior_handler.ndim, nlive=400)
-                    sampler.run_nested()
-                else:
-                    with Pool(self.pool, self.lnlike, self.sampler_prior) as pool:
-                        sampler = DynamicNestedSampler(pool.loglike, pool.prior_transform, ndim = self.prior_handler.ndim, nlive=400, pool=pool)
-                        sampler.run_nested()
-                print(f"Sampling time (minutes): {(time.time()-t0)/60}")
-                results = sampler.results
-                self.points, self.log_w = results.samples, np.log(results.importance_weights())
-
-            else:
-                raise Exception(f"Sampler {self.sampler} not supported. (Please choose either 'Nautilus' or 'Dynesty')")
-
-            print("Sampling finished successfully.")
-
+            t0 = time.time()
+            sampler = Sampler(self.sampler_prior, self.lnlike, n_live=400, pool=self.pool, n_dim = self.prior_handler.ndim)
+            sampler.run(verbose=True)
+            print(f"Sampling time (minutes): {(time.time()-t0)/60}")
+            self.points, self.log_w, self.log_l = sampler.posterior()
             self.save_output()
 
 
@@ -403,15 +365,15 @@ class fit(object):
         """ Wrapper to plot models. """
 
         # Plot and save the maxL fit
-        plotter().plot_best(self.images, self.wavs, self.convolved_models, self.points[np.argmax(self.log_l)], self.prior_handler, self.filter_names, self.contmaps)
+        plotting.plot_best(self.images, self.wavs, self.image_models, self.points[np.argmax(self.log_l)], self.prior_handler, self.filter_names, self.contmaps)
         plt.savefig(dir_path+f'/mimical/plots{self.runtag}/{self.id}_best_model.pdf', bbox_inches='tight', dpi=500, transparent=True)
 
         # Plot the trends with wavelength if multiband fit
         if len(self.wavs) > 1:
-            plotter().plot_trends(self.wavs, self.samples, self.prior_handler, self.mimical_prior)
+            plotting.plot_trends(self.wavs, self.samples, self.prior_handler, self.mimical_prior)
             plt.savefig(dir_path+f'/mimical/plots{self.runtag}/{self.id}_trends.pdf', bbox_inches='tight', dpi=500, transparent=True)
 
         # Plot the errors used in fitting
-        plotter().plot_errors(self.images, self.wavs, self.mimical_prior, self.convolved_models, self.points[np.argmax(self.log_l)], self.prior_handler, self.filter_names, self.contmaps)
+        plotting.plot_errors(self.images, self.wavs, self.mimical_prior, self.image_models, self.points[np.argmax(self.log_l)], self.prior_handler, self.filter_names, self.contmaps)
         plt.savefig(dir_path+f'/mimical/plots{self.runtag}/{self.id}_errors.pdf', bbox_inches='tight', dpi=500, transparent=True)
     

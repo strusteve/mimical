@@ -1,0 +1,6 @@
+numpy
+astropy
+matplotlib
+nautilus-sampler
+pandas
+corner

@@ -2,12 +2,11 @@ import os
 from astropy.io import fits
 import numpy as np
 from astropy.io import ascii
-import matplotlib.pyplot as plt
 import scipy
 
 dir_path = os.getcwd()
 install_dir = os.path.dirname(os.path.realpath(__file__))
-sextractor_dir = (install_dir + "/sextractor_config").replace("/fitting","")
+sextractor_dir = (install_dir + "/config/sextractor_config").replace("/utils","")
 
 
 def create_contmaps(id, wavs, images, filter_names, segmaps_empty,  target_maxdistancepix, dilute, dilute_radius, runtag=''):
@@ -46,7 +45,7 @@ def create_contmaps(id, wavs, images, filter_names, segmaps_empty,  target_maxdi
     # Loop over filters, load Sextractor catalogues and segmentation maps, determine any areas of contamination and set them to zero.
     for i in range(len(wavs)):
         image = images[i]
-        centre_x, centre_y = image.shape[1]/2, image.shape[0]/2
+        centre_x, centre_y = (image.shape[1]-1)/2, (image.shape[0]-1)/2
         cat = ascii.read(f"{dir_path}/mimical/sextractor/cats{runtag}/{id}_{filter_names[i]}.cat").to_pandas()
         cat['sep'] = np.sqrt( (cat['X_IMAGE']-centre_x)**2 +  (cat['Y_IMAGE']-centre_y)**2  )
         cat.index = cat['NUMBER'].values
@@ -83,8 +82,8 @@ def create_contmaps(id, wavs, images, filter_names, segmaps_empty,  target_maxdi
     if dilute:
         contmaps_diluted = []
         for map in contmaps:
-            coordsx, coordsy = np.meshgrid(np.arange(2*dilute_radius)-dilute_radius+0.5, np.arange(2*dilute_radius)-dilute_radius+0.5)
-            mask = coordsx**2 + coordsy**2 < dilute_radius**2
+            coordsx, coordsy = np.meshgrid(np.arange(2*dilute_radius+1)-dilute_radius, np.arange(2*dilute_radius+1)-dilute_radius)
+            mask = coordsx**2 + coordsy**2 <= dilute_radius**2
             diluted = scipy.ndimage.minimum_filter(map, footprint=mask)
             contmaps_diluted.append(diluted)
         return contmaps_diluted

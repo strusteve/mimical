@@ -1,3 +1,18 @@
+Metadata-Version: 2.1
+Name: mimical
+Version: 0.3.2
+Summary: Intensity modelling for multiply-imaged objects
+Author: Struan Stevenson
+Author-email: struan.stevenson@ed.ac.uk
+Project-URL: GitHub, https://github.com/strusteve/mimical
+License-File: LICENSE.txt
+Requires-Dist: numpy
+Requires-Dist: astropy
+Requires-Dist: matplotlib
+Requires-Dist: nautilus-sampler
+Requires-Dist: pandas
+Requires-Dist: corner
+
 **Mimical** (**M**\odelling the **I**\ntensity of **M**\ultiply-**I**\maged **C**\elesti\ **A**\l **L**\ight)
 
 
