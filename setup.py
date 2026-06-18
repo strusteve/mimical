@@ -24,7 +24,7 @@ setup(
 
     include_package_data=True,
 
-    install_requires=["numpy", "torch", "torchvision", "cmcrameri.cm", "astropy", "scipy", "matplotlib", "nautilus-sampler", "pandas", "corner"],
+    install_requires=["numpy", "torch", "torchvision", "cmcrameri", "astropy", "scipy", "matplotlib", "nautilus-sampler", "pandas", "corner"],
 
     project_urls={
         "GitHub": "https://github.com/strusteve/mimical"
