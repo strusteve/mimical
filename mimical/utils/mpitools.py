@@ -1,3 +1,4 @@
+# Credit A. C. Carnall, Bagpipes
 import numpy as np
 
 try:
@@ -10,7 +11,6 @@ except ImportError:
     print("mpi4py import failed.")
     rank = 0
     size = 1
-
 
 
 def mpi_split_array(array):

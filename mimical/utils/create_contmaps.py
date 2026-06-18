@@ -9,7 +9,8 @@ install_dir = os.path.dirname(os.path.realpath(__file__))
 sextractor_dir = (install_dir + "/config/sextractor_config").replace("/utils","")
 
 
-def create_contmaps(id, wavs, images, filter_names, segmaps_empty,  target_maxdistancepix, dilute, dilute_radius, runtag=''):
+
+def create_contmaps(id, wavs, images, filter_names, segmaps_empty, target_maxdistancepix, dilute, dilute_radius, runtag=''):
     """ Method for cleaning contaminated images with sextractor, overwrites images and segmentation maps. """
 
     contmaps = segmaps_empty.copy()
@@ -25,7 +26,6 @@ def create_contmaps(id, wavs, images, filter_names, segmaps_empty,  target_maxdi
         os.system('mkdir ' + dir_path + f"/mimical/sextractor/input_images{runtag}")
         os.system('mkdir ' + dir_path + f"/mimical/sextractor/cats{runtag}")
         os.system('mkdir ' + dir_path + f"/mimical/sextractor/segmaps{runtag}")
-
 
     # Save images passed to Mimical for passing to Sextractor
     for i in range(len(wavs)):
@@ -47,7 +47,7 @@ def create_contmaps(id, wavs, images, filter_names, segmaps_empty,  target_maxdi
         image = images[i]
         centre_x, centre_y = (image.shape[1]-1)/2, (image.shape[0]-1)/2
         cat = ascii.read(f"{dir_path}/mimical/sextractor/cats{runtag}/{id}_{filter_names[i]}.cat").to_pandas()
-        cat['sep'] = np.sqrt( (cat['X_IMAGE']-centre_x)**2 +  (cat['Y_IMAGE']-centre_y)**2  )
+        cat['sep'] = np.sqrt( np.array((cat['X_IMAGE']-centre_x)**2+(cat['Y_IMAGE']-centre_y)**2)  )
         cat.index = cat['NUMBER'].values
 
         # If no objects found, leave segmap as ones.
@@ -55,7 +55,7 @@ def create_contmaps(id, wavs, images, filter_names, segmaps_empty,  target_maxdi
             continue
 
         else:
-            segmap = fits.open(f"{dir_path}/mimical/sextractor/segmaps{runtag}/{id}_{filter_names[i]}.fits")[0].data
+            segmap = fits.open(f"{dir_path}/mimical/sextractor/segmaps{runtag}/{id}_{filter_names[i]}.fits")[0].data.astype(float)
 
             # If only one object found
             if len(cat)==1:
@@ -63,7 +63,7 @@ def create_contmaps(id, wavs, images, filter_names, segmaps_empty,  target_maxdi
 
             # If multiple objects found
             else:
-                obj_of_interest = cat.loc[cat['NUMBER'].values[np.argmin(cat['sep'])]]
+                obj_of_interest = cat.loc[cat['NUMBER'].values[np.argmin(np.array(cat['sep'].values))]]
 
             # If closest object is not near centre, cut it / others
             if obj_of_interest['sep'] > target_maxdistancepix:
@@ -80,12 +80,12 @@ def create_contmaps(id, wavs, images, filter_names, segmaps_empty,  target_maxdi
     
     # Dilute the contamination maps usinga circular filter or radius 'dilute_radius'
     if dilute:
-        contmaps_diluted = []
-        for map in contmaps:
+        contmaps_diluted = segmaps_empty.copy()
+        for i in range(len(contmaps)):
             coordsx, coordsy = np.meshgrid(np.arange(2*dilute_radius+1)-dilute_radius, np.arange(2*dilute_radius+1)-dilute_radius)
             mask = coordsx**2 + coordsy**2 <= dilute_radius**2
-            diluted = scipy.ndimage.minimum_filter(map, footprint=mask)
-            contmaps_diluted.append(diluted)
+            diluted = scipy.ndimage.minimum_filter(contmaps[i], footprint=mask)
+            contmaps_diluted[i] = diluted
         return contmaps_diluted
     
     else:

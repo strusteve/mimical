@@ -5,11 +5,13 @@ from nautilus import Sampler
 import time
 import os
 import pandas as pd
+import torch
 
 from ..priors.prior_handler import priorHandler
 from ..plotting import plotting
 from ..utils import filter_set
 from ..utils import create_contmaps
+from ..utils import make_oversampling_table
 from ..models.submodels import Sersic
 from ..models.imagemodel import ImageModel
 
@@ -22,6 +24,8 @@ if not os.path.isdir(dir_path + "/mimical"):
 
 install_dir = os.path.dirname(os.path.realpath(__file__))
 sextractor_dir = (install_dir + "/utils/sextractor_config").replace("/fitting","")
+tabledir = (install_dir + "/utils/oversampling_table").replace("/fitting","")
+    
 
 
 class fit(object):
@@ -33,38 +37,29 @@ class fit(object):
     id : str
         An ID for the fitting run. Only really used for output files.
 
-    images : ndarray or list of ndarray
-        An image array or list of image arrays with elements for each filter.
+    images : 2darray or 3darray
+        A 2D image or 3D image with slices for each filter.
 
     filt_list : str or list of str
         A path string  or list of path strings to the filter transmission curve files, relative
         to the current working directory.
 
-    psfs : ndarray or list of ndarray
-        A PSF image array or list of PSF image arrays with elements for each filter.
+    psfs : 2darray or 3darray
+        A 2D PSF or 3D PSF with slices for each filter.
 
     mimical_prior : dict
         The user specified prior which set out the priors for the model parameters
         and passes information about whether to let these vary for each filter or
         whether they follow an order-specified polynomial relationship.
 
-    submodel : array
-        Astropy Fittable2DModel used to model the image data. The subsequent prior must include
-        only and all parameters in the astropy_model.parameters variable, as well as a 'psf_pa' parameter.\
-        
-    pool : none or int
-        Number of cores to parallelise likelihood calculations to.
+    submodel : mimical.submodel
+        The mimical submodel used in sampling. Currently only 'Sersic' is supported.
 
-    oversample_boxlength : int
-        Width of box about image center to oversample within.
+    se_clean : bool
+        Whether or not to let SourceExtractor clean the input images of contaminants. Must allow 'sex' command
+        via terminal.
 
-    oversample_factor : int
-        Factor by which to oversample the central box.
-
-    sextractor_clean : bool
-        Whether or not to let sextractor clean the input images of contaminants.
-
-    sextractor_target_maxdistancepix : str or float
+    se_maxdist: str or float
         The distance after which the closest detected source is considered a contaminant.
         Necessary for images in which the target is undetected.
 
@@ -73,230 +68,264 @@ class fit(object):
 
     dilute_radius : int
         If dilute is 'True', apply minimim filter with radius 'dilute_radius' over the contamination map.
-    
-    oversample : int or list
-        Oversample factor for the entire image or annuli defined by oversample radii.
-    
-    oversample_radii : int or list
-        Radii in which to oversample.
-
     """
 
 
-
     def __init__(self, id, images, filt_list, psfs, mimical_prior, 
-                 submodel=Sersic(), pool=None, sextractor_clean=False,
-                 sextractor_target_maxdistancepix='default', dilute=False, dilute_radius=1, runtag='', oversample=1, oversample_radii=[0]):
+                 submodel=Sersic, se_clean=False, se_maxdist='default', dilute=False, dilute_radius=5, runtag=''):
         
-        # Start the clock
         self.genesis = time.time()
 
-        # Set fitting ID
+        # Set positional arguments
         self.id = id
+        self.images = images
+        self.filt_list = filt_list
+        self.psfs = psfs
+        self.mimical_prior = mimical_prior
+        self.contmaps = np.ones_like(self.images)
         print(f"Fitting object {self.id}.")
 
-        # Helper if only one image is being fitted
-        if isinstance(images, np.ndarray):
-            filt_list = [filt_list]
-            self.images = [images]
-            self.psfs = [psfs]
-            self.contmaps = [np.ones_like(images)]
-        elif isinstance(images, list):
-            self.images = images
-            self.filt_list = filt_list
-            self.psfs = psfs
-            self.contmaps = [np.ones_like(x) for x in self.images]
-        else:
-            raise Exception("Images must be either an ndarray or list of ndarrays")
-
-        # Set the Mimical prior
-        self.mimical_prior = mimical_prior
+        # Helper if only one image is passed
+        if len(images.shape)==2:
+            self.images = np.array(([self.images]))
+            self.filt_list = [self.filt_list]
+            self.psfs = np.array(([self.psfs]))
+            self.contmaps = np.array(([self.contmaps]))
 
         # Set keyword arguments
         self.submodel = submodel
-        self.pool = pool
-        self.sextractor_clean = sextractor_clean
+        self.se_clean= se_clean
         self.runtag = runtag
-        self.oversampling_radii = oversample_radii
-        self.oversampling_factors = oversample
 
         # Find the names and effective wavelengths of image filters
-        self.filter_names = [x.split('/')[-1] for x in filt_list]
-        self.wavs = filter_set([dir_path+'/'+x for x in filt_list]).eff_wavs / 1e4
+        self.filter_names = [x.split('/')[-1] for x in self.filt_list]
+        self.wavs = (filter_set([dir_path+'/'+x for x in self.filt_list]).eff_wavs / 1e4)
 
-        # If single image fit, make mimical prior verbose.
+        # If single image fit, make mimical prior adequately verbose
         if len(self.wavs)==1:
             for i in mimical_prior:
-                mimical_prior[i] = (mimical_prior[i], 'Individual')
-
-        # Sort the image information in order of ascending wavelength
-        else:
-            sorter = np.argsort(self.wavs)
-            self.wavs = [self.wavs[x] for x in sorter]
-            self.filter_names = [self.filter_names[x] for x in sorter]
-            self.images = [self.images[x] for x in sorter]
-            self.filt_list = [self.filt_list[x] for x in sorter]
-            self.psfs = [self.psfs[x] for x in sorter]
-            self.contmaps = [self.contmaps[x] for x in sorter]
-            for key in self.mimical_prior.keys():
-                if isinstance(self.mimical_prior[key][0], list):
-                    self.mimical_prior[key] = ([self.mimical_prior[key][0][x] for x in sorter], *self.mimical_prior[key][1:])
-                elif isinstance(self.mimical_prior[key][0], np.ndarray):
-                    raise Exception("If specifying values for each filter, please pass these in with a list, not an ndarray.")
-                else:
-                    continue
-
+                if 'source' in i:
+                    for j in mimical_prior[i]: mimical_prior[i][j] = (mimical_prior[i][j], 'Individual')
+                else: mimical_prior[i] = (mimical_prior[i], 'Individual')
+        
         # Set and run SourceExtractor if desired
-        if sextractor_target_maxdistancepix=='default':
-            self.target_maxdistancepix = (self.images[0].shape[0]-1)/5
-        else:
-            self.target_maxdistancepix = sextractor_target_maxdistancepix
+        if se_maxdist=='default': self.se_maxdist = (self.images.shape[1]-1)/5
+        else: self.se_maxdist = se_maxdist
         self.dilute = dilute
         self.dilute_radius = dilute_radius
-        if self.sextractor_clean == True:
-            self.contmaps = create_contmaps(self.id, self.wavs, self.images, self.filter_names, self.contmaps, self.target_maxdistancepix, self.dilute, self.dilute_radius, self.runtag)
+        if self.se_clean == True:
+            self.contmaps = create_contmaps(self.id, self.wavs, self.images, self.filter_names, self.contmaps, self.se_maxdist, self.dilute, self.dilute_radius, self.runtag)
 
         # Initiate the prior handler object, used to parse and translate priors and parameters
         self.prior_handler = priorHandler(mimical_prior, self.filter_names, self.wavs, self.images, self.runtag, self.id)
         self.sampler_prior_keys = self.prior_handler.keys
-        print(f"Fitting -{self.prior_handler.nmodel}- parameter submodels with" +
+        print(f"Fitting -{self.prior_handler.nsources}- parameter submodels with" +
                      f" -{self.prior_handler.nparam}- parameter Mimical fit with dimensionality" +
                      f" -{self.prior_handler.ndim}-.")
-
-        # Define dummy models for each filter, quicker to update parameters than create new models in the likelihood
-        self.submodel = submodel
-        self.image_models = []
-        for i in range(len(self.wavs)):
-            self.image_models.append(ImageModel(self.submodel, psf=self.psfs[i], oversampling_radii=self.oversampling_radii, oversampling_factors=self.oversampling_factors))
+        
+        # Get the keys of all Mimical properties per filter
+        self.mimical_keys = []
+        for key in self.mimical_prior.keys():
+            if isinstance(self.mimical_prior[key], dict):
+                for subkey in self.mimical_prior[key].keys():
+                    self.mimical_keys.append(f"{key}:{subkey}")
+            else: self.mimical_keys.append(key)
 
         # Code-timing interface
         self.calls = 0
         self.calltime = 0
-        self.bugtime = 0
+
 
     
-    def get_residuals(self, param_dict):
-
-        # Translate unit cube prior sample into Mimical prior sample
-        reverted = self.prior_handler.revert(param_dict)
-
-        # Check if sampled model paramters are all within bounds, if not - blow up
-        for j in range(len(list(self.mimical_prior.keys()))):
-            bounds = self.mimical_prior[list(self.mimical_prior.keys())[j]][0]
-            if isinstance(bounds, tuple):
-                if (any(reverted[:,j] < bounds[0])) | (any(reverted[:,j] > bounds[1])): return -9.99*10**99
-            else: continue
+    def get_residuals(self, param_vec):
+        """ For the given parameter vector, returns the residuals between the data and model. """
         
-        # Pull out model parameters, as well as supplementary RMS and counts-per-flux parameters
-        modelpars = reverted[:,:self.prior_handler.nmodel]
-        rmsarr = reverted[:,self.prior_handler.nmodel]
-        cpfarr = reverted[:,self.prior_handler.nmodel+1]
+        # Translate unit cube prior sample into Mimical prior sample
+        reverted = self.prior_handler.revert(param_vec)
 
-        # If user provides RMS values, override prior sample - necessary to recover full arrays
-        if not isinstance(self.mimical_prior['rms'][0], tuple):
-            if isinstance(self.mimical_prior['rms'][0], list):
-                if isinstance(self.mimical_prior['rms'][0][0], np.ndarray):
-                    rmsarr = self.mimical_prior['rms'][0]
-            elif (len(self.wavs) == 1) & (isinstance(self.mimical_prior['rms'][0], np.ndarray)):
-                rmsarr = [self.mimical_prior['rms'][0]]
-            # If user wants mimical to infer RMS from image background, do so
-            elif (isinstance(self.mimical_prior['rms'][0], str)) & (self.mimical_prior['rms'][0] == "Infer"):
-                    if not self.sextractor_clean: raise Exception("If using 'Infer' special type for RMS, must set sextractor_clean=True.")
-
-        # If user provides counts-per-flux parameters, override prior sample - necessary to recover full arrays
-        if not isinstance(self.mimical_prior['counts_per_flux'][0], tuple):
-            if isinstance(self.mimical_prior['counts_per_flux'][0], list):
-                if isinstance(self.mimical_prior['counts_per_flux'][0][0], np.ndarray):
-                    cpfarr = self.mimical_prior['counts_per_flux'][0]
-            elif (len(self.wavs) == 1) & (isinstance(self.mimical_prior['counts_per_flux'][0], np.ndarray)):
-                cpfarr = [self.mimical_prior['counts_per_flux'][0]]
-
-        residuals_arr = []
-        sigma_arr = []
-
-        # Loop over filters
-        for i in range(len(self.wavs)):
-
-            # Update the model and evaluate over a pixel grid.
-            self.image_models[i].update_parameters(modelpars[i])
-            model = self.image_models[i].render(np.arange(self.images[i].shape[1]), np.arange(self.images[i].shape[0]))
-
-
-            # If, for whatever reason, the model has NaNs, set to zero and blow up errors.
-            if np.isnan(np.sum(model)):
-                model = np.zeros_like(model)
-                sigma = np.zeros_like(model) + 1e99
-                print('Unphysical model detected.')
-
-            # Else, append to respective arrays.
+        # Check if sampled model paramters are all within bounds, if not - return void
+        voidcount=-1
+        for key in self.mimical_prior.keys():
+            if isinstance(self.mimical_prior[key], dict):
+                for subkey in self.mimical_prior[key].keys():
+                    voidcount+=1
+                    bounds = self.mimical_prior[key][subkey][0]
+                    if isinstance(bounds, tuple):
+                        if (any(reverted[:,voidcount] < bounds[0])) | (any(reverted[:,voidcount] > bounds[1])): return 'void', 'void'
+                    else: continue      
             else:
-                sigma = np.sqrt(rmsarr[i]**2 + ((cpfarr[i]**(-1/2))*np.sqrt(np.abs(model)))**2)
-                #sigma = np.zeros_like(model) + rmsarr[i]
-                if isinstance(sigma, np.ndarray):
-                    sigma[(~np.isfinite(sigma)) | (sigma==0)] = 1e99
+                voidcount+=1
+                bounds = self.mimical_prior[key][0]
+                if isinstance(bounds, tuple):
+                    if (any(reverted[:,voidcount] < bounds[0])) | (any(reverted[:,voidcount] > bounds[1])): return 'void', 'void'
+                else: continue
 
-            # Calculate the 3D mask
-            contmask_3D = self.contmaps[i] == 1
+        # Pull out model parameters, as well as supplementary RMS and counts-per-flux parameters
+        modelpars = reverted[:,:np.sum(self.prior_handler.nsources)]
+        psfarr = reverted[:,np.sum(self.prior_handler.nsources)]
+        rmsarr = reverted[:,np.sum(self.prior_handler.nsources)+1]
+        cpfarr = reverted[:,np.sum(self.prior_handler.nsources)+2]
+        
+        # If user provides RMS per pixel, override prior sample - necessary to recover full arrays
+        if isinstance(self.mimical_prior['rms'][0], np.ndarray):
+            rmsarr = np.array([self.mimical_prior['rms'][0]])
+        # If user wants mimical to infer RMS from image background, do so
+        elif (isinstance(self.mimical_prior['rms'][0], str)):
+            if (self.mimical_prior['rms'][0] == "Infer"):
+                if not self.se_clean: raise Exception("If using the 'Infer' special type for RMS, must set se_clean=True.")
+    
+        # If user provides counts-per-flux per pixel, override prior sample - necessary to recover full arrays
+        if isinstance(self.mimical_prior['counts_per_flux'][0], np.ndarray):
+                cpfarr = self.mimical_prior['counts_per_flux'][0]
 
-            # Calculate the filter specific likelihood and add to total
-            residuals = self.images[i][contmask_3D].flatten() - model[contmask_3D].flatten()
+        # Update the model for sampled parameters
+        self.image_models.update_parameters(torch.tensor(modelpars.astype(np.float32), device=self.accelerator), torch.tensor(psfarr.astype(np.float32), device=self.accelerator))
 
-            residuals_arr.extend(residuals)
-            sigma_arr.extend(sigma[contmask_3D].flatten())
+        # Update oversampling if 'auto' is chosen
+        if isinstance(self.oversample, str):
+            if self.oversample == 'auto':
+                r_eff_rounded = np.maximum(0.1, np.round(modelpars[:,1]))
+                n_rounded = np.round(modelpars[:,2], 1)
+                oversampling = np.zeros((len(r_eff_rounded), 3))
+                for i in range(len(r_eff_rounded)):
+                    r_eff_mask = self.r_eff_indices == r_eff_rounded[i]
+                    n_mask = self.n_indices == n_rounded[i]
+                    bigmask = n_mask[:, None] & r_eff_mask[None, :]
+                    oversampling[i] = self.oversampling_table.T[bigmask][0]
+                argmax = np.argmax(np.sum(oversampling, axis=1))
+                self.image_models.update_oversampling(oversample=oversampling[argmax].astype(int).tolist(), oversample_radii=np.array(([1, r_eff_rounded[argmax], 3*r_eff_rounded[argmax]])).tolist())
 
-        return np.array((residuals_arr)), np.array((sigma_arr))
+        # Discretize model to grid
+        model = self.image_models.render().cpu().numpy()
+                
+        # If, for whatever reason, the model has NaNs, set to zero and blow up errors.
+        if np.isnan(np.sum(model)):
+            model = np.zeros_like(model)
+            sigma = np.zeros_like(model) + 1e99
+            print('Unphysical model detected.')
+        # Calculate the error by the quadrature sum of rms and poisson errors
+        else:
+            sigma = np.sqrt(rmsarr.T**2 + ((cpfarr**(-1/2))*np.sqrt(np.abs(model.T)))**2).T
+
+        # Calculate the 3D mask
+        contmask = self.contmaps == 1
+        if rmsarr.shape == self.images.shape:
+            contmask *= rmsarr != 0
+
+        # Calculate the filter specific likelihood and add to total
+        residuals = (self.images - model)[contmask]
+        sigma = sigma[contmask]
+
+        return residuals, sigma
 
         
             
-    def lnlike(self, param_dict):
+    def lnlike(self, param_vec):
         """ Returns the log-likelihood for a given parameter vector. """
 
-        residuals, sigma = self.get_residuals(param_dict)        
+        t0 = time.time()    
+
+        residuals, sigma = self.get_residuals(param_vec)
+
+        if isinstance(residuals, str):
+            return -9.99e99
+
         norm = np.log((1/(np.sqrt(2*np.pi*(sigma**2)))))
         log_like_array = norm + ((-(residuals)**2) / (2*(sigma**2)))
         log_like = np.sum(log_like_array)
+
+        self.calls+=1
+        self.calltime+=time.time()-t0
+
+        #if self.calls%100==0:
+            #print(self.calltime/self.calls)
 
         return(log_like)
 
 
 
-    def run(self):
-        """ Runs the nested sampler to sample models, and processes its output. """
-    
+    def run(self, n_live=400, pool=None, oversample=None, oversample_boxlength=None, oversample_radii=None, gpu_acceleration=False):
+        """ Run the sampler and save results.
+
+        Parameters
+        ----------
+
+        n_live : int
+            Number of live points in nested sampling algorithm.
+            
+        pool : none or int
+            Number of cores to parallelise likelihood calculations to.
+
+        oversample : int or list
+            Oversample factor for the entire image or annuli defined by oversample radii.
+
+        oversample_boxlength : int
+            Width of box about image center to oversample within.
+
+        oversample_radii : int or list
+            Radii in which to oversample.
+
+        gpu_acceleration : boolean
+            Whether or not to accelerate the model generation onto the first available GPU, compatable with apple silicon.
+        """
+
+        # Set oversampling and find compatable accelerator platform if available. (CUDA, MPS, etc.)
+        self.oversample = oversample
+        self.oversample_boxlength = oversample_boxlength
+        self.oversample_radii = oversample_radii
+        if gpu_acceleration:
+            self.accelerator = torch.accelerator.current_accelerator() if torch.accelerator.is_available() else torch.device('cpu')
+        else: self.accelerator = torch.device('cpu')
+
+        # Define dummy models in each filter which are updated during sampling
+        if self.psfs is not None:
+            psf_accel = torch.tensor(self.psfs.astype(np.float32), device=self.accelerator)
+        else: psf_accel = self.psfs
+        self.image_models = ImageModel(torch.arange(self.images.shape[2], device=self.accelerator),
+                                       torch.arange(self.images.shape[1], device=self.accelerator),
+                                       [self.submodel()]*len(self.prior_handler.nsources),
+                                       psf=psf_accel,
+                                       psf_pa=np.zeros(len(self.wavs)),
+                                       oversample=self.oversample, 
+                                       oversample_boxlength=self.oversample_boxlength, 
+                                       oversample_radii=self.oversample_radii)
+
+        # Load automatic oversampling table if auto
+        if isinstance(oversample, str):
+            if oversample == 'auto':
+                if not os.path.isfile(tabledir +'/table1_values.txt'):
+                    make_oversampling_table()
+                self.n_indices = np.loadtxt(tabledir + f'/n_values.txt')
+                self.r_eff_indices = np.loadtxt(tabledir + f'/r_eff_values.txt')
+                self.oversampling_table = np.c_[[np.loadtxt(tabledir + f'/table{i+1}_values.txt') for i in range(3)]]
+            
         # Create sub-directories for specific catalogue runs, if they don't already exist
         if not os.path.isdir(dir_path + f"/mimical/posteriors{self.runtag}"):
             os.system('mkdir ' + dir_path + f"/mimical/plots{self.runtag}")
             os.system('mkdir ' + dir_path + f"/mimical/posteriors{self.runtag}")
-
-        # Check that the user specified prior contains all the parameters as the user specified 2D model
-        if list(self.image_models[0].param_names) != list(self.mimical_prior.keys())[:-2]:
-            raise Exception("Prior labels do not match model parameters.")
         
-        # Check if a posterior already exists for the object being fitted, if so load it
-        if os.path.isfile(dir_path+f'/mimical/posteriors{self.runtag}' + f'/{self.id}_samples.txt'):
-            self.points = np.loadtxt(dir_path+f"/mimical/posteriors{self.runtag}/{self.id}_points.txt")
-            self.log_w = np.loadtxt(dir_path+f"/mimical/posteriors{self.runtag}/{self.id}_logw.txt")
-            self.log_l = np.loadtxt(dir_path+f"/mimical/posteriors{self.runtag}/{self.id}_logl.txt")
-            self.samples = pd.read_csv(dir_path+f'/mimical/posteriors{self.runtag}' + f'/{self.id}_samples.txt', delimiter=' ').to_numpy()
+        # Check if a posterior already exists for the object being fitted, if so - load it
+        if os.path.isfile(dir_path+f'/mimical/posteriors{self.runtag}' + f'/{self.id}_points.txt'):
+            self.points = np.loadtxt(dir_path+f"/mimical/posteriors{self.runtag}/{self.id}_points.txt", dtype=np.float32)
+            self.log_w = np.loadtxt(dir_path+f"/mimical/posteriors{self.runtag}/{self.id}_logw.txt", dtype=np.float32)
+            self.log_l = np.loadtxt(dir_path+f"/mimical/posteriors{self.runtag}/{self.id}_logl.txt", dtype=np.float32)
             print(f"Loading existing posterior at " + dir_path + f'/mimical/posteriors{self.runtag}' + f'/{self.id}.txt')
             self.save_output()
         
-        # If not, sample
         else:
             # Set the sampler prior
-            self.sampler_prior = self.prior_handler.sampler_prior
             t0 = time.time()
-            sampler = Sampler(self.sampler_prior, self.lnlike, n_live=400, pool=self.pool, n_dim = self.prior_handler.ndim)
+            sampler = Sampler(self.prior_handler.sampler_prior, self.lnlike, n_live=n_live, pool=pool, n_dim = self.prior_handler.ndim)
             sampler.run(verbose=True)
             print(f"Sampling time (minutes): {(time.time()-t0)/60}")
             self.points, self.log_w, self.log_l = sampler.posterior()
             self.save_output()
 
 
-    def calc_chisq(self, param_dict):
-        """ Calculates the Chisq value for the maximum likelihood model. """
-        
-        residuals, sigma = self.get_residuals(param_dict)
+    def calc_chisq(self, param_vec):
+        """ Calculates the Chisq value for the given parameter vector. """
+
+        residuals, sigma = self.get_residuals(param_vec)
         chisq_arr = residuals**2 / sigma**2
         chisq = np.sum(chisq_arr)
 
@@ -316,15 +345,9 @@ class fit(object):
         n_post = 10000
         indices = np.random.choice(np.arange(self.points.shape[0]), size = n_post, p=np.exp(self.log_w))
         self.samples = self.points[indices]
-        samples_df = pd.DataFrame(data=self.samples, columns=self.sampler_prior_keys)
-        samples_df.to_csv(dir_path+f"/mimical/posteriors{self.runtag}/{self.id}_samples.txt", sep=' ', index=False)
-
-        # Plot and save the corner plot
-        corner.corner(self.points.T[self.prior_handler.samplemask].T, weights=np.exp(self.log_w), bins=20, labels=np.array(self.sampler_prior_keys)[self.prior_handler.samplemask], color='black', plot_datapoints=False, range=np.repeat(0.999, np.sum(self.prior_handler.samplemask)))
-        plt.savefig(dir_path+f'/mimical/plots{self.runtag}/{self.id}_corner.pdf', bbox_inches='tight')
 
         # Define empty samples array and translate Mimical samples into model parameter samples
-        samples_mimical = np.apply_along_axis(lambda param_vec: self.prior_handler.revert(param_vec).flatten(), 1, self.samples).reshape(self.samples.shape[0], len(self.wavs), len(self.mimical_prior.keys()))
+        samples_mimical = np.apply_along_axis(lambda param_vec: self.prior_handler.revert(param_vec).flatten(), 1, self.samples).reshape(self.samples.shape[0], len(self.wavs), np.sum(self.prior_handler.nsources)+3)
 
         # Calculate percentiles
         quantiles = np.percentile(samples_mimical, q=(16, 50, 84), axis=0)
@@ -332,11 +355,12 @@ class fit(object):
         # Create dataframe table
         dic = {"id":self.id}
         for j in range(len(self.wavs)):
-            for i in range(len(self.mimical_prior.keys())):
-                key = list(self.mimical_prior.keys())[i]
+            for i in range(len(self.mimical_keys)):
+                key = list(self.mimical_keys)[i]
                 dic[key + "_" + self.filter_names[j] + "_16"] = [quantiles[0, j, i]]
                 dic[key + "_" + self.filter_names[j] + "_50"] = [quantiles[1, j, i]]
                 dic[key + "_" + self.filter_names[j] + "_84"] = [quantiles[2, j, i]]
+
         chisq, numd = self.calc_chisq(self.points[np.argmax(self.log_l)])
         dic['datanum'] = numd
         dic['chisq'] = chisq
@@ -359,18 +383,32 @@ class fit(object):
                 else:
                     print('Object already written to catalogue.')
 
+        # Save best model image for each filter
+        param_vec = self.prior_handler.revert(self.points[np.argmax(self.log_l)])
+        pars = param_vec[:,:np.sum(self.prior_handler.nsources)]
+        psfarr = param_vec[:,np.sum(self.prior_handler.nsources)]
+        self.image_models.update_parameters(torch.tensor(pars, dtype=torch.float32, device=self.accelerator), torch.tensor(psfarr, dtype=torch.float32, device=self.accelerator))
+        best_models = self.image_models.render().cpu().numpy()
+        for i in range(len(self.wavs)):
+            np.savetxt(dir_path+f'/mimical/plots{self.runtag}/{self.id}_best_model.txt', best_models[i])
+
+        # Plot and save the corner plot
+        corner.corner(self.points.T[self.prior_handler.samplemask].T, weights=np.exp(self.log_w), bins=20, labels=np.array(self.sampler_prior_keys)[self.prior_handler.samplemask], color='black', plot_datapoints=False, range=np.repeat(0.999, np.sum(self.prior_handler.samplemask)))
+        #corner.corner(self.points, weights=np.exp(self.log_w), bins=20, labels=np.array(self.sampler_prior_keys), color='black', plot_datapoints=False, range=np.repeat(0.999, len(self.sampler_prior_keys))) 
+        plt.savefig(dir_path+f'/mimical/plots{self.runtag}/{self.id}_corner.pdf', bbox_inches='tight')
+
 
 
     def plot_model(self):
-        """ Wrapper to plot models. """
+        """ Wrapper to plot output. """
 
         # Plot and save the maxL fit
         plotting.plot_best(self.images, self.wavs, self.image_models, self.points[np.argmax(self.log_l)], self.prior_handler, self.filter_names, self.contmaps)
-        plt.savefig(dir_path+f'/mimical/plots{self.runtag}/{self.id}_best_model.pdf', bbox_inches='tight', dpi=500, transparent=True)
+        plt.savefig(dir_path+f'/mimical/plots{self.runtag}/{self.id}_fit_summary.pdf', bbox_inches='tight', dpi=500, transparent=True)
 
         # Plot the trends with wavelength if multiband fit
         if len(self.wavs) > 1:
-            plotting.plot_trends(self.wavs, self.samples, self.prior_handler, self.mimical_prior)
+            plotting.plot_trends(self.wavs, self.samples, self.mimical_prior, self.prior_handler, self.mimical_keys)
             plt.savefig(dir_path+f'/mimical/plots{self.runtag}/{self.id}_trends.pdf', bbox_inches='tight', dpi=500, transparent=True)
 
         # Plot the errors used in fitting

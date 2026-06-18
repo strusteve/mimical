@@ -13,29 +13,23 @@ class fitCatalogue(object):
     runtag : str
         A name for the mimical catalogue run.
 
-    id : str
-        An ID for the fitting run. Only really used for output files.
+    id_list : list
+        An ID list for the fitting run. Only really used for output files.
 
-    laod_images : function
-        A function with input "id" which returns a 3D array of image data with slices for each filter. Each image
-        must be the same shape.
+    load_images : function
+        Function taking in 'id' and returning an 2D ndarray or 3D ndarray with slices for each filter.
 
-    filt_list : str or list
-        A function with input "id" which returns a list of path strings to the filter transmission curve files, relative
-        to the current working directory. Must be in ascending order with effective wavelength.
+    load_filt_list : function
+        Function taking in 'id' and returning a path string  or list of path strings to the filter transmission curve files, relative
+        to the current working directory.
 
-    psfs : array
-        A function with input "id" which returns a 3D array of normalised PSF images with slices for each filter. Each PSF image
-        must be the same shape.
+    load_psfs : function
+        Function taking in 'id' and returning a PSF 2D ndarray or 3D ndarray with slices for each filter.
 
-    load_mimical_prior : dict
-        A function with input "id" which returns a user specified prior which sets out the priors for 
-        the model parameters and passes information about whether to let these vary for each filter 
-        or whether they follow an order-specified polynomial relationship.
-
-    astropy_model : array
-        Astropy Fittable2DModel used to model the image data. The subsequent prior must include
-        only and all parameters in the astropy_model.parameters variable, as well as a 'psf_pa' parameter.
+    load_mimical_prior : function
+        The user specified prior which set out the priors for the model parameters
+        and passes information about whether to let these vary for each filter or
+        whether they follow a power-law or an order-specified polynomial relationship.
     """
 
     def __init__(self, runtag, id_list, load_images, load_filt_list, load_psfs, load_mimical_prior, **kwargs):
@@ -49,21 +43,25 @@ class fitCatalogue(object):
         self.kwargs = kwargs
 
         
-    def run(self, mpi_serial=False, make_plots=False):
+    def run(self, mpi_serial=False, make_plots=False, **run_kwargs):
         """ Runs the nested sampler to sample models, and processes its output.
          
         Parameters
         ----------
 
-        mpi_serial : False
-            Whether or not to split ID list among cores, must run script with command
-            'mpirun/mpiexec -n [ncores] python [file].
+        mpi_serial : bool
+            Whether or not to split ID list among cores, must run script with command 'mpirun/mpiexec -n [ncores] python [file]'
+
+                    n_live : int
+            Number of live points in nested sampling algorithm.
+
+        make_plots : bool
         """
 
         if not mpi_serial:
             for id in self.id_list:
                 single = fit(id, self.load_images(id), self.load_filt_list(id), self.load_psfs(id), self.load_mimical_prior(id), runtag="/"+self.runtag, **self.kwargs)
-                single.run()
+                single.run(**run_kwargs)
                 if make_plots:
                     single.plot_model()
     
@@ -71,7 +69,7 @@ class fitCatalogue(object):
             id_core = mpi_split_array(np.array((self.id_list)))
             for id in id_core:
                 single = fit(id, self.load_images(id), self.load_filt_list(id), self.load_psfs(id), self.load_mimical_prior(id), runtag="/"+self.runtag, **self.kwargs)
-                single.run()
+                single.run(**run_kwargs)
                 if make_plots:
                     single.plot_model()
         

@@ -1,8 +1,10 @@
 import numpy as np
 
 
+
 def individual(unit_cube, param_prior_dist):
     return (unit_cube * (param_prior_dist[1]-param_prior_dist[0])) + param_prior_dist[0]
+
 
 
 def polynomial(unit_cube, param_prior_dist, poly_order, wavs):
@@ -11,7 +13,7 @@ def polynomial(unit_cube, param_prior_dist, poly_order, wavs):
     # e.g., For order 0, only one free parameter is included for the whole fitting run a.k.a constant between filters.
     # e.g., For order 1, two free parameter are included for the whole fitting run a.k.a straight-line relationship  with effective wavelength.
     # The lowest wavelength is chosen as the origin.
-    
+
     theta_curr = np.zeros(poly_order+1)
 
     # Set the prior for the y-intercept first.
@@ -19,7 +21,7 @@ def polynomial(unit_cube, param_prior_dist, poly_order, wavs):
     
     # Define a random order for which to loop through higher order polynomial coefficients
     random_order = np.append(0, np.random.choice(np.arange(poly_order), size=poly_order, replace=False)+1)
-    
+
     # Calculate the conditional priors for higher order polynomial coefficients based on the sum of the lower order components
     for i in range(1, len(random_order)):
 
@@ -27,20 +29,21 @@ def polynomial(unit_cube, param_prior_dist, poly_order, wavs):
         prev_coeffs = theta_curr[random_order[:i]]
 
         # Calculate the previous order wavelength multipliers
-        prev_polywavs = np.power(wavs[-1]-wavs[0], random_order[:i])
+        prev_polywavs = np.pow(wavs[-1]-wavs[0], random_order[:i])
 
         # Calculate sum of previous polynomial components 
         prev_comps = prev_coeffs * prev_polywavs
         prev_comps_summed = np.sum(prev_comps)
             
         # Define the current coefficient bounds based on the sum of the lower order components and current wavelength multiplier
-        min = (param_prior_dist[0] - prev_comps_summed) / (np.power(wavs[-1]-wavs[0], random_order[i]))
-        max = (param_prior_dist[1] - prev_comps_summed) / (np.power(wavs[-1]-wavs[0], random_order[i]))
+        min = (param_prior_dist[0] - prev_comps_summed) / (np.pow(wavs[-1]-wavs[0], random_order[i]))
+        max = (param_prior_dist[1] - prev_comps_summed) / (np.pow(wavs[-1]-wavs[0], random_order[i]))
         
         # Set the new coefficient prior sample
         theta_curr[random_order[i]] = (unit_cube[random_order[i]] * (max-min)) + min
 
     return theta_curr
+
 
 
 def powerlaw(unit_cube, param_prior_dist, wavs, powerbounds, epsilon):
@@ -63,7 +66,6 @@ def powerlaw(unit_cube, param_prior_dist, wavs, powerbounds, epsilon):
         mincept = (param_prior_dist[0] - (theta_curr[1] * ((epsilon/((wavs[-1]-wavs[0])+epsilon))**theta_curr[2]))) / (1 - ((epsilon/((wavs[-1]-wavs[0])+epsilon))**theta_curr[2]))
         maxcept = (param_prior_dist[1] - (theta_curr[1] * ((epsilon/((wavs[-1]-wavs[0])+epsilon))**theta_curr[2]))) / (1 - ((epsilon/((wavs[-1]-wavs[0])+epsilon))**theta_curr[2]))
         theta_curr[0] = (unit_cube[0] * (maxcept-mincept) + mincept)
-
 
     return theta_curr
 
