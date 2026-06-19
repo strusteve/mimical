@@ -16,37 +16,37 @@ def create_contmaps(id, wavs, images, filter_names, segmaps_empty, target_maxdis
     contmaps = segmaps_empty.copy()
 
     # Make output directories for sextractor output
-    if not os.path.isdir(dir_path + "/mimical/sextractor"):
-        os.system('mkdir ' + dir_path + "/mimical/sextractor")
-        os.system('mkdir ' + dir_path + "/mimical/sextractor/input_images")
-        os.system('mkdir ' + dir_path + "/mimical/sextractor/cats")
-        os.system('mkdir ' + dir_path + "/mimical/sextractor/segmaps")
+    if not os.path.isdir(dir_path + "/mimical_output/sextractor"):
+        os.system('mkdir ' + dir_path + "/mimical_output/sextractor")
+        os.system('mkdir ' + dir_path + "/mimical_output/sextractor/input_images")
+        os.system('mkdir ' + dir_path + "/mimical_output/sextractor/cats")
+        os.system('mkdir ' + dir_path + "/mimical_output/sextractor/segmaps")
 
-    if not os.path.isdir(dir_path + f"/mimical/sextractor/cats{runtag}"):
-        os.system('mkdir ' + dir_path + f"/mimical/sextractor/input_images{runtag}")
-        os.system('mkdir ' + dir_path + f"/mimical/sextractor/cats{runtag}")
-        os.system('mkdir ' + dir_path + f"/mimical/sextractor/segmaps{runtag}")
+    if not os.path.isdir(dir_path + f"/mimical_output/sextractor/cats{runtag}"):
+        os.system('mkdir ' + dir_path + f"/mimical_output/sextractor/input_images{runtag}")
+        os.system('mkdir ' + dir_path + f"/mimical_output/sextractor/cats{runtag}")
+        os.system('mkdir ' + dir_path + f"/mimical_output/sextractor/segmaps{runtag}")
 
     # Save images passed to Mimical for passing to Sextractor
     for i in range(len(wavs)):
         hdul = fits.HDUList()
         hdul.append(fits.ImageHDU(data=images[i]))
-        hdul.writeto(f"{dir_path}/mimical/sextractor/input_images{runtag}/{id}_{filter_names[i]}.fits", overwrite=True)
+        hdul.writeto(f"{dir_path}/mimical_output/sextractor/input_images{runtag}/{id}_{filter_names[i]}.fits", overwrite=True)
 
     # Run Sextractor
     for i in range(len(wavs)):
-        os.system(f"sex {dir_path}/mimical/sextractor/input_images{runtag}/{id}_{filter_names[i]}.fits" +
+        os.system(f"sex {dir_path}/mimical_output/sextractor/input_images{runtag}/{id}_{filter_names[i]}.fits" +
                     f" -c {sextractor_dir}/jwst_default_segmap.config" +
                     f" -FILTER_NAME {sextractor_dir}/gauss_2.5_5x5.conv" +
                     f" -PARAMETERS_NAME {sextractor_dir}/default.param" +
-                    f" -CATALOG_NAME {dir_path}/mimical/sextractor/cats{runtag}/{id}_{filter_names[i]}.cat" +
-                    f" -CHECKIMAGE_NAME {dir_path}/mimical/sextractor/segmaps{runtag}/{id}_{filter_names[i]}.fits")
-        
+                    f" -CATALOG_NAME {dir_path}/mimical_output/sextractor/cats{runtag}/{id}_{filter_names[i]}.cat" +
+                    f" -CHECKIMAGE_NAME {dir_path}/mimical_output/sextractor/segmaps{runtag}/{id}_{filter_names[i]}.fits")
+
     # Loop over filters, load Sextractor catalogues and segmentation maps, determine any areas of contamination and set them to zero.
     for i in range(len(wavs)):
         image = images[i]
         centre_x, centre_y = (image.shape[1]-1)/2, (image.shape[0]-1)/2
-        cat = ascii.read(f"{dir_path}/mimical/sextractor/cats{runtag}/{id}_{filter_names[i]}.cat").to_pandas()
+        cat = ascii.read(f"{dir_path}/mimical_output/sextractor/cats{runtag}/{id}_{filter_names[i]}.cat").to_pandas()
         cat['sep'] = np.sqrt( np.array((cat['X_IMAGE']-centre_x)**2+(cat['Y_IMAGE']-centre_y)**2)  )
         cat.index = cat['NUMBER'].values
 
@@ -55,8 +55,7 @@ def create_contmaps(id, wavs, images, filter_names, segmaps_empty, target_maxdis
             continue
 
         else:
-            segmap = fits.open(f"{dir_path}/mimical/sextractor/segmaps{runtag}/{id}_{filter_names[i]}.fits")[0].data.astype(float)
-
+            segmap = fits.open(f"{dir_path}/mimical_output/sextractor/segmaps{runtag}/{id}_{filter_names[i]}.fits")[0].data.astype(float)
             # If only one object found
             if len(cat)==1:
                 obj_of_interest = cat.iloc[0]

@@ -53,8 +53,8 @@ class priorHandler(object):
             if self.mimical_prior['rms'][0] == "Infer":
                 self.rms = []
                 for i in range(len(self.wavs)):
-                    if os.path.isfile(dir_path+f'/mimical/sextractor/segmaps{self.runtag}' + f'/{self.id}_{self.filter_names[i]}.fits'):
-                            segmap = fits.open(dir_path+f'/mimical/sextractor/segmaps{self.runtag}' + f'/{self.id}_{self.filter_names[i]}.fits')[0].data.astype(float)
+                    if os.path.isfile(dir_path+f'/mimical_output/sextractor/segmaps{self.runtag}' + f'/{self.id}_{self.filter_names[i]}.fits'):
+                            segmap = fits.open(dir_path+f'/mimical_output/sextractor/segmaps{self.runtag}' + f'/{self.id}_{self.filter_names[i]}.fits')[0].data.astype(float)
                             bckgnd = self.images[i][segmap==0]
                             rmsi = ((np.sum(bckgnd**2))/len(bckgnd))**(1/2)
                             self.rms.append(rmsi)
@@ -123,34 +123,23 @@ class priorHandler(object):
                         # If fixed for each individual filter, set for each separately
                         if (param_fit_type == "Individual"):
                             
-                            # Helper for single image fit
-                            if len(self.wavs) == 1:
-                                if not isinstance(param_prior_dist, np.ndarray):
-                                    theta[thetacount] = param_prior_dist
-                                    thetacount+=1
-                                else:
-                                    theta[thetacount] = np.mean(param_prior_dist)
-                                    thetacount+=1
-                                    
-                            # For multiple image fits
-                            else:
-                                if isinstance(param_prior_dist, (float, int)):
+                            if isinstance(param_prior_dist, (float, int)):
+                                theta[thetacount:thetacount+len(self.wavs)] = param_prior_dist
+                                thetacount+=len(self.wavs)
+
+                            elif isinstance(param_prior_dist, list):
+                                if not isinstance(param_prior_dist[0], np.ndarray):
                                     theta[thetacount:thetacount+len(self.wavs)] = param_prior_dist
                                     thetacount+=len(self.wavs)
-
-                                elif isinstance(param_prior_dist, list):
-                                    if not isinstance(param_prior_dist[0], np.ndarray):
-                                        theta[thetacount:thetacount+len(self.wavs)] = param_prior_dist
-                                        thetacount+=len(self.wavs)
-                                    # If user supplies values for each image pixel (pertinent for RMS etc.), then pass the
-                                    # mean to the prior samples. This is required for generality but is overwritten later in the 
-                                    # likelihood function.
-                                    else:  
-                                        theta[thetacount:thetacount+len(self.wavs)] = np.mean(np.array((param_prior_dist)), axis=(1,2))
-                                        thetacount+=len(self.wavs)
-                                    
-                                else: 
-                                    raise Exception('Must pass float/int/list for a multiband fit. The list can be a list of floats/ints or a list of arrays.')
+                                # If user supplies values for each image pixel (pertinent for RMS etc.), then pass the
+                                # mean to the prior samples. This is required for generality but is overwritten later in the 
+                                # likelihood function.
+                                else:  
+                                    theta[thetacount:thetacount+len(self.wavs)] = np.mean(np.array((param_prior_dist)), axis=(1,2))
+                                    thetacount+=len(self.wavs)
+                                
+                            else: 
+                                raise Exception('Must pass float/int/list for a multiband fit. The list can be a list of floats/ints or a list of arrays.')
 
                         # If user supplies polynomial coefficients, set them.
                         elif param_fit_type == "Polynomial":
@@ -210,34 +199,23 @@ class priorHandler(object):
                     # If fixed for each individual filter, set for each separately
                     if (param_fit_type == "Individual"):
                         
-                        # Helper for single image fit
-                        if len(self.wavs) == 1:
-                            if not isinstance(param_prior_dist, np.ndarray):
-                                theta[thetacount] = param_prior_dist
-                                thetacount+=1
-                            else:
-                                theta[thetacount] = np.mean(param_prior_dist[param_prior_dist!=0])
-                                thetacount+=1
-                                
-                        # For multiple image fits
-                        else:
-                            if isinstance(param_prior_dist, (float, int)):
+                        if isinstance(param_prior_dist, (float, int)):
+                            theta[thetacount:thetacount+len(self.wavs)] = param_prior_dist
+                            thetacount+=len(self.wavs)
+
+                        elif isinstance(param_prior_dist, list):
+                            if not isinstance(param_prior_dist[0], np.ndarray):
                                 theta[thetacount:thetacount+len(self.wavs)] = param_prior_dist
                                 thetacount+=len(self.wavs)
-
-                            elif isinstance(param_prior_dist, list):
-                                if not isinstance(param_prior_dist[0], np.ndarray):
-                                    theta[thetacount:thetacount+len(self.wavs)] = param_prior_dist
-                                    thetacount+=len(self.wavs)
-                                # If user supplies values for each image pixel (pertinent for RMS etc.), then pass the
-                                # mean to the prior samples. This is required for generality but is overwritten later in the 
-                                # likelihood function.
-                                else:  
-                                    theta[thetacount:thetacount+len(self.wavs)] = np.mean(np.array((param_prior_dist)), axis=(1,2))
-                                    thetacount+=len(self.wavs)
-                                
-                            else: 
-                                raise Exception('Must pass float/int/list for a multiband fit. The list can be a list of floats/ints or a list of arrays.')
+                            # If user supplies values for each image pixel (pertinent for RMS etc.), then pass the
+                            # mean to the prior samples. This is required for generality but is overwritten later in the 
+                            # likelihood function.
+                            else:  
+                                theta[thetacount:thetacount+len(self.wavs)] = np.mean(np.array((param_prior_dist)), axis=(1,2))
+                                thetacount+=len(self.wavs)
+                            
+                        else: 
+                            raise Exception('Must pass float/int/list for a multiband fit. The list can be a list of floats/ints or a list of arrays.')
 
                     # If user supplies polynomial coefficients, set them.
                     elif param_fit_type == "Polynomial":

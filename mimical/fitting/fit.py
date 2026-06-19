@@ -16,11 +16,11 @@ from ..models.submodels import Sersic
 from ..models.imagemodel import ImageModel
 
 dir_path = os.getcwd()
-if not os.path.isdir(dir_path + "/mimical"):
-    os.system('mkdir ' + dir_path + "/mimical")
-    os.system('mkdir ' + dir_path + "/mimical/plots")
-    os.system('mkdir ' + dir_path + "/mimical/posteriors")
-    os.system('mkdir ' + dir_path + "/mimical/cats")
+if not os.path.isdir(dir_path + "/mimical_output"):
+    os.system('mkdir ' + dir_path + "/mimical_output")
+    os.system('mkdir ' + dir_path + "/mimical_output/plots")
+    os.system('mkdir ' + dir_path + "/mimical_output/posteriors")
+    os.system('mkdir ' + dir_path + "/mimical_output/cats")
 
 install_dir = os.path.dirname(os.path.realpath(__file__))
 sextractor_dir = (install_dir + "/utils/sextractor_config").replace("/fitting","")
@@ -37,15 +37,14 @@ class fit(object):
     id : str
         An ID for the fitting run. Only really used for output files.
 
-    images : 2darray or 3darray
-        A 2D image or 3D image with slices for each filter.
+    images : list
+        List of 2D images with slices for each filter. Must be the same shape and pixel scale.
 
-    filt_list : str or list of str
-        A path string  or list of path strings to the filter transmission curve files, relative
-        to the current working directory.
+    filt_list : list
+        A list of path strings to the filter transmission curve files, relative to the current working directory.
 
-    psfs : 2darray or 3darray
-        A 2D PSF or 3D PSF with slices for each filter.
+    psfs : list
+        A list of PSF images with slices for each filter, normalised to one.
 
     mimical_prior : dict
         The user specified prior which set out the priors for the model parameters
@@ -72,25 +71,17 @@ class fit(object):
 
 
     def __init__(self, id, images, filt_list, psfs, mimical_prior, 
-                 submodel=Sersic, se_clean=False, se_maxdist='default', dilute=False, dilute_radius=5, runtag=''):
+                 submodel=Sersic, se_clean=False, se_maxdist='default', dilute=True, dilute_radius=5, runtag=''):
         
         self.genesis = time.time()
 
         # Set positional arguments
         self.id = id
-        self.images = images
+        self.images = np.array((images))
         self.filt_list = filt_list
-        self.psfs = psfs
+        self.psfs = np.array((psfs))
         self.mimical_prior = mimical_prior
-        self.contmaps = np.ones_like(self.images)
         print(f"Fitting object {self.id}.")
-
-        # Helper if only one image is passed
-        if len(images.shape)==2:
-            self.images = np.array(([self.images]))
-            self.filt_list = [self.filt_list]
-            self.psfs = np.array(([self.psfs]))
-            self.contmaps = np.array(([self.contmaps]))
 
         # Set keyword arguments
         self.submodel = submodel
@@ -101,14 +92,17 @@ class fit(object):
         self.filter_names = [x.split('/')[-1] for x in self.filt_list]
         self.wavs = (filter_set([dir_path+'/'+x for x in self.filt_list]).eff_wavs / 1e4)
 
+        """
         # If single image fit, make mimical prior adequately verbose
         if len(self.wavs)==1:
             for i in mimical_prior:
                 if 'source' in i:
                     for j in mimical_prior[i]: mimical_prior[i][j] = (mimical_prior[i][j], 'Individual')
                 else: mimical_prior[i] = (mimical_prior[i], 'Individual')
+        """
         
         # Set and run SourceExtractor if desired
+        self.contmaps = np.ones_like(self.images)
         if se_maxdist=='default': self.se_maxdist = (self.images.shape[1]-1)/5
         else: self.se_maxdist = se_maxdist
         self.dilute = dilute
@@ -205,12 +199,14 @@ class fit(object):
             print('Unphysical model detected.')
         # Calculate the error by the quadrature sum of rms and poisson errors
         else:
-            sigma = np.sqrt(rmsarr.T**2 + ((cpfarr**(-1/2))*np.sqrt(np.abs(model.T)))**2).T
+            sigma = np.sqrt(rmsarr.T**2 + ((cpfarr.T**(-1/2))*np.sqrt(np.abs(model.T)))**2).T
 
         # Calculate the 3D mask
         contmask = self.contmaps == 1
         if rmsarr.shape == self.images.shape:
             contmask *= rmsarr != 0
+        if cpfarr.shape == self.images.shape:
+            contmask *= cpfarr != 0
 
         # Calculate the filter specific likelihood and add to total
         residuals = (self.images - model)[contmask]
@@ -244,7 +240,7 @@ class fit(object):
 
 
 
-    def run(self, n_live=400, pool=None, oversample=None, oversample_boxlength=None, oversample_radii=None, gpu_acceleration=False):
+    def run(self, n_live=400, pool=None, oversample=None, oversample_boxlength=None, oversample_radii=None, gpu_acceleration=False, verbose_sampler=True):
         """ Run the sampler and save results.
 
         Parameters
@@ -267,6 +263,9 @@ class fit(object):
 
         gpu_acceleration : boolean
             Whether or not to accelerate the model generation onto the first available GPU, compatable with apple silicon.
+
+        verbose : bool
+            Whether or not to have verbose output from the Nautilus sampler.
         """
 
         # Set oversampling and find compatable accelerator platform if available. (CUDA, MPS, etc.)
@@ -299,24 +298,20 @@ class fit(object):
                 self.r_eff_indices = np.loadtxt(tabledir + f'/r_eff_values.txt')
                 self.oversampling_table = np.c_[[np.loadtxt(tabledir + f'/table{i+1}_values.txt') for i in range(3)]]
             
-        # Create sub-directories for specific catalogue runs, if they don't already exist
-        if not os.path.isdir(dir_path + f"/mimical/posteriors{self.runtag}"):
-            os.system('mkdir ' + dir_path + f"/mimical/plots{self.runtag}")
-            os.system('mkdir ' + dir_path + f"/mimical/posteriors{self.runtag}")
         
         # Check if a posterior already exists for the object being fitted, if so - load it
-        if os.path.isfile(dir_path+f'/mimical/posteriors{self.runtag}' + f'/{self.id}_points.txt'):
-            self.points = np.loadtxt(dir_path+f"/mimical/posteriors{self.runtag}/{self.id}_points.txt", dtype=np.float32)
-            self.log_w = np.loadtxt(dir_path+f"/mimical/posteriors{self.runtag}/{self.id}_logw.txt", dtype=np.float32)
-            self.log_l = np.loadtxt(dir_path+f"/mimical/posteriors{self.runtag}/{self.id}_logl.txt", dtype=np.float32)
-            print(f"Loading existing posterior at " + dir_path + f'/mimical/posteriors{self.runtag}' + f'/{self.id}.txt')
+        if os.path.isfile(dir_path+f'/mimical_output/posteriors{self.runtag}' + f'/{self.id}_points.txt'):
+            self.points = np.loadtxt(dir_path+f"/mimical_output/posteriors{self.runtag}/{self.id}_points.txt", dtype=np.float32)
+            self.log_w = np.loadtxt(dir_path+f"/mimical_output/posteriors{self.runtag}/{self.id}_logw.txt", dtype=np.float32)
+            self.log_l = np.loadtxt(dir_path+f"/mimical_output/posteriors{self.runtag}/{self.id}_logl.txt", dtype=np.float32)
+            print(f"Loading existing posterior at " + dir_path + f'/mimical_output/posteriors{self.runtag}')
             self.save_output()
         
         else:
             # Set the sampler prior
             t0 = time.time()
             sampler = Sampler(self.prior_handler.sampler_prior, self.lnlike, n_live=n_live, pool=pool, n_dim = self.prior_handler.ndim)
-            sampler.run(verbose=True)
+            sampler.run(verbose=verbose_sampler)
             print(f"Sampling time (minutes): {(time.time()-t0)/60}")
             self.points, self.log_w, self.log_l = sampler.posterior()
             self.save_output()
@@ -337,9 +332,9 @@ class fit(object):
         """ Saves the 16th/50th/84th percentiles of user prior parameter posteriors for each filter. """
 
         # Save the sampled points and corresponding log-weights
-        np.savetxt(dir_path+f"/mimical/posteriors{self.runtag}/{self.id}_points.txt", self.points)
-        np.savetxt(dir_path+f"/mimical/posteriors{self.runtag}/{self.id}_logw.txt", self.log_w)
-        np.savetxt(dir_path+f"/mimical/posteriors{self.runtag}/{self.id}_logl.txt", self.log_l)
+        np.savetxt(dir_path+f"/mimical_output/posteriors{self.runtag}/{self.id}_points.txt", self.points)
+        np.savetxt(dir_path+f"/mimical_output/posteriors{self.runtag}/{self.id}_logw.txt", self.log_w)
+        np.savetxt(dir_path+f"/mimical_output/posteriors{self.runtag}/{self.id}_logl.txt", self.log_l)
 
         # Sample an appropriately weighted posterior for representative samples, and save
         n_post = 10000
@@ -368,18 +363,18 @@ class fit(object):
 
         # If not part of a catalogue fit, save individual
         if self.runtag=='':
-            df.to_csv(dir_path+f'/mimical/cats/{self.id}.csv', index=False)
+            df.to_csv(dir_path+f'/mimical_output/cats/{self.id}.csv', index=False)
 
         # If part of a catalogue fit, either start a catalogue file or append to it.
         else:
-            if not os.path.isfile(dir_path + f"/mimical/cats{self.runtag}.csv"):
-                df.to_csv(dir_path+f'/mimical/cats{self.runtag}.csv', index=False)
+            if not os.path.isfile(dir_path + f"/mimical_output/cats{self.runtag}.csv"):
+                df.to_csv(dir_path+f'/mimical_output/cats{self.runtag}.csv', index=False)
             else:
-                ridden = pd.read_csv(dir_path+f'/mimical/cats{self.runtag}.csv')
+                ridden = pd.read_csv(dir_path+f'/mimical_output/cats{self.runtag}.csv')
                 ridden.index = ridden['id'].values.astype('str')
                 if self.id not in ridden.index.values:
                     ridden.loc[self.id] = df.values[0]
-                    ridden.to_csv(dir_path+f'/mimical/cats{self.runtag}.csv', index=False)
+                    ridden.to_csv(dir_path+f'/mimical_output/cats{self.runtag}.csv', index=False)
                 else:
                     print('Object already written to catalogue.')
 
@@ -390,12 +385,12 @@ class fit(object):
         self.image_models.update_parameters(torch.tensor(pars, dtype=torch.float32, device=self.accelerator), torch.tensor(psfarr, dtype=torch.float32, device=self.accelerator))
         best_models = self.image_models.render().cpu().numpy()
         for i in range(len(self.wavs)):
-            np.savetxt(dir_path+f'/mimical/plots{self.runtag}/{self.id}_best_model.txt', best_models[i])
+            np.savetxt(dir_path+f'/mimical_output/plots{self.runtag}/{self.id}_best_model.txt', best_models[i])
 
         # Plot and save the corner plot
         corner.corner(self.points.T[self.prior_handler.samplemask].T, weights=np.exp(self.log_w), bins=20, labels=np.array(self.sampler_prior_keys)[self.prior_handler.samplemask], color='black', plot_datapoints=False, range=np.repeat(0.999, np.sum(self.prior_handler.samplemask)))
         #corner.corner(self.points, weights=np.exp(self.log_w), bins=20, labels=np.array(self.sampler_prior_keys), color='black', plot_datapoints=False, range=np.repeat(0.999, len(self.sampler_prior_keys))) 
-        plt.savefig(dir_path+f'/mimical/plots{self.runtag}/{self.id}_corner.pdf', bbox_inches='tight')
+        plt.savefig(dir_path+f'/mimical_output/plots{self.runtag}/{self.id}_corner.pdf', bbox_inches='tight')
 
 
 
@@ -404,14 +399,14 @@ class fit(object):
 
         # Plot and save the maxL fit
         plotting.plot_best(self.images, self.wavs, self.image_models, self.points[np.argmax(self.log_l)], self.prior_handler, self.filter_names, self.contmaps)
-        plt.savefig(dir_path+f'/mimical/plots{self.runtag}/{self.id}_fit_summary.pdf', bbox_inches='tight', dpi=500, transparent=True)
+        plt.savefig(dir_path+f'/mimical_output/plots{self.runtag}/{self.id}_fit_summary.pdf', bbox_inches='tight', dpi=500, transparent=True)
 
         # Plot the trends with wavelength if multiband fit
         if len(self.wavs) > 1:
             plotting.plot_trends(self.wavs, self.samples, self.mimical_prior, self.prior_handler, self.mimical_keys)
-            plt.savefig(dir_path+f'/mimical/plots{self.runtag}/{self.id}_trends.pdf', bbox_inches='tight', dpi=500, transparent=True)
+            plt.savefig(dir_path+f'/mimical_output/plots{self.runtag}/{self.id}_trends.pdf', bbox_inches='tight', dpi=500, transparent=True)
 
         # Plot the errors used in fitting
         plotting.plot_errors(self.images, self.wavs, self.mimical_prior, self.image_models, self.points[np.argmax(self.log_l)], self.prior_handler, self.filter_names, self.contmaps)
-        plt.savefig(dir_path+f'/mimical/plots{self.runtag}/{self.id}_errors.pdf', bbox_inches='tight', dpi=500, transparent=True)
+        plt.savefig(dir_path+f'/mimical_output/plots{self.runtag}/{self.id}_errors.pdf', bbox_inches='tight', dpi=500, transparent=True)
     

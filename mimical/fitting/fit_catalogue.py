@@ -1,7 +1,15 @@
 import numpy as np
+import os
 
 from .fit import fit
 from ..utils import mpi_split_array
+
+dir_path = os.getcwd()
+if not os.path.isdir(dir_path + "/mimical_output"):
+    os.system('mkdir ' + dir_path + "/mimical_output")
+    os.system('mkdir ' + dir_path + "/mimical_output/plots")
+    os.system('mkdir ' + dir_path + "/mimical_output/posteriors")
+    os.system('mkdir ' + dir_path + "/mimical_output/cats")
 
 
 class fitCatalogue(object):
@@ -17,20 +25,21 @@ class fitCatalogue(object):
         An ID list for the fitting run. Only really used for output files.
 
     load_images : function
-        Function taking in 'id' and returning an 2D ndarray or 3D ndarray with slices for each filter.
+        Function taking in 'id' and returning a list of images with slices for each filter.
 
     load_filt_list : function
-        Function taking in 'id' and returning a path string  or list of path strings to the filter transmission curve files, relative
-        to the current working directory.
+        Function taking in 'id' and returning a  list of path strings to the filter transmission curve files, relative to the current working directory.
 
     load_psfs : function
-        Function taking in 'id' and returning a PSF 2D ndarray or 3D ndarray with slices for each filter.
+        Function taking in 'id' and returning a list of PSF images with slices for each filter.
 
     load_mimical_prior : function
         The user specified prior which set out the priors for the model parameters
         and passes information about whether to let these vary for each filter or
         whether they follow a power-law or an order-specified polynomial relationship.
     """
+
+
 
     def __init__(self, runtag, id_list, load_images, load_filt_list, load_psfs, load_mimical_prior, **kwargs):
         
@@ -41,8 +50,13 @@ class fitCatalogue(object):
         self.load_psfs = load_psfs
         self.load_mimical_prior = load_mimical_prior
         self.kwargs = kwargs
+    
+        # Create sub-directories for specific catalogue runs, if they don't already exist
+        if not os.path.isdir(dir_path + f"/mimical_output/posteriors/{self.runtag}"):
+            os.system('mkdir ' + dir_path + f"/mimical_output/plots/{self.runtag}")
+            os.system('mkdir ' + dir_path + f"/mimical_output/posteriors/{self.runtag}")
 
-        
+
     def run(self, mpi_serial=False, make_plots=False, **run_kwargs):
         """ Runs the nested sampler to sample models, and processes its output.
          
@@ -72,5 +86,3 @@ class fitCatalogue(object):
                 single.run(**run_kwargs)
                 if make_plots:
                     single.plot_model()
-        
-    

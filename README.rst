@@ -18,9 +18,9 @@ Mimical can be installed with pip:
 
 **Required input**
 
-#. ``images`` - An 2D image or 3D image cube with slices for each filter.
-#. ``filt_list`` - A path string or list of path strings to the filter transmission curve files.
-#. ``psfs`` - A 2D PSF image or 3D PSF image cube arrays with slices for each filter. (Normalised to 1)
+#. ``images`` - A list of images with slices for each filter.
+#. ``filt_list`` - A list of path strings to the filter transmission curve files.
+#. ``psfs`` - A list of PSF images with slices for each filter. (Normalised to 1)
 #. ``mimical_prior`` - The Mimical prior (*see below*)
 
 
