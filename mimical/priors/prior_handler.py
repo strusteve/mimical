@@ -41,6 +41,13 @@ class priorHandler(object):
 
     def __init__(self, mimical_prior, filter_names, wavs, images, runtag, id):
         self.mimical_prior = mimical_prior
+        self.mimical_keys = []
+        for key in self.mimical_prior.keys():
+            if isinstance(self.mimical_prior[key], dict):
+                for subkey in self.mimical_prior[key].keys():
+                    self.mimical_keys.append(f"{key}:{subkey}")
+            else: self.mimical_keys.append(key)
+
         self.filter_names = filter_names
         self.wavs = wavs
         self.nsources, self.nparam, self.ndim, self.keys, self.samplemask = self.calculate_dimensionality()
@@ -518,16 +525,22 @@ class priorHandler(object):
             
         if type=='sampler':
             samples_sampler = np.apply_along_axis(self.sampler_prior, 1, unit_cube)
-            return samples_sampler, self.generate_sampler_prior_keys()
+            print(samples_sampler)
+            return samples_sampler, self.keys
     
         elif type=='mimical':
             samples_mimical = np.apply_along_axis(lambda unit_vec: self.revert(self.sampler_prior(unit_vec)).flatten(), 1, unit_cube)
+
             keys = []
             for j in range(len(self.filter_names)):
-                for i in range(len(self.mimical_prior.keys())):
-                    key = list(self.mimical_prior.keys())[i]
+                for i in range(len(self.mimical_keys)):
+                    key = self.mimical_keys[i]
                     keys.append(f"{key}_{self.filter_names[j]}")
+
             return samples_mimical, keys
+        
+        else:
+            raise Exception("'type' must be either 'sampler' or 'mimical'.")
     
     
     
@@ -536,28 +549,47 @@ class priorHandler(object):
 
         n = len(samples_mimical)
         mask = np.arange(n) == np.arange(n)
+
         for i in range(n):
-            samples_now = samples_mimical[i].reshape(len(self.wavs), len(list(self.mimical_prior.keys())))
-            for j in range(len(self.mimical_prior.keys())):
-                if (samples_now[:,j]<self.mimical_prior[list(self.mimical_prior.keys())[j]][0][0]).any() | (samples_now[:,j]>self.mimical_prior[list(self.mimical_prior.keys())[j]][0][1]).any():
-                    mask[i]=False
+
+            samples_now = samples_mimical[i].reshape(len(self.wavs), len(list(self.mimical_keys)))
+
+            # Check if sampled model paramters are all within bounds
+            voidcount=-1
+            for key in self.mimical_prior.keys():
+                if isinstance(self.mimical_prior[key], dict):
+                    for subkey in self.mimical_prior[key].keys():
+                        voidcount+=1
+                        bounds = self.mimical_prior[key][subkey][0]
+                        if isinstance(bounds, tuple):
+                            if (any(samples_now[:,voidcount] < bounds[0])) | (any(samples_now[:,voidcount] > bounds[1])): mask[i] = False
+                        
+                        else: continue      
                 else:
-                    continue
+                    voidcount+=1
+                    bounds = self.mimical_prior[key][0]
+                    if isinstance(bounds, tuple):
+                        if (any(samples_now[:,voidcount] < bounds[0])) | (any(samples_now[:,voidcount] > bounds[1])): 
+                            mask[i] = False
+                    else: continue
+
         print(np.sum(mask)/len(mask))
         return mask
     
-    
+
 
     def plot_samples(self, n, key):
         """ Check what fraction of Mimical prior samples are physical under the user constraints. """
 
-        samples_mimical, = self.check_priors(n=n, type='mimical')
+        samples_mimical, keys = self.check_priors(n=n, type='mimical')
         mask = self.check_physical(samples_mimical)
         physical = samples_mimical[mask]
+
         fig, ax = plt.subplots()
+
         for i in range(len(physical)):
-            curr_sample = physical[i].reshape(len(self.wavs), len(list(self.mimical_prior.keys())))
-            ofinterest = curr_sample[:, list(self.mimical_prior.keys()).index(key)]
+            curr_sample = physical[i].reshape(len(self.wavs), len(self.mimical_keys))
+            ofinterest = curr_sample[:, list(self.mimical_keys).index(key)]
             ax.plot(self.wavs, ofinterest, color='black', alpha=1)
         ax.set_ylabel(key)
         ax.set_xlabel('$\lambda$')
