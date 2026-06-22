@@ -1,0 +1,108 @@
+Metadata-Version: 2.4
+Name: mimical
+Version: 0.3.6
+Summary: Intensity modelling for multiply-imaged objects
+Author: Struan Stevenson
+Author-email: struan.stevenson@ed.ac.uk
+Project-URL: GitHub, https://github.com/strusteve/mimical
+License-File: LICENSE.txt
+Requires-Dist: numpy
+Requires-Dist: torch
+Requires-Dist: torchvision
+Requires-Dist: cmcrameri
+Requires-Dist: astropy
+Requires-Dist: scipy
+Requires-Dist: matplotlib
+Requires-Dist: nautilus-sampler
+Requires-Dist: pandas
+Requires-Dist: corner
+Requires-Dist: tqdm
+Requires-Dist: photutils
+Dynamic: author
+Dynamic: author-email
+Dynamic: description
+Dynamic: license-file
+Dynamic: project-url
+Dynamic: requires-dist
+Dynamic: summary
+
+**Mimical** (**M**\odelling the **I**\ntensity of **M**\ultiply-**I**\maged **C**\elesti\ **A**\l **L**\ight)
+
+
+Mimical is an intensity modelling code optimised for multiply-imaged objects (image cubes), performing simultaneous Bayseian inference of model parameters via the nested sampling algorithm. Mimical currently uses a built-in Sersic submodel, but users can easily bolt-on any other 2D submodel. Since every new filter introduces new submodel free parameters, Mimical supports the assumption of a user defined polynomial or power-law dependency with image wavelength, automatically sampling their coefficients over the allowed parameter region. Additionally, with support for CPU parallelisation via MPI and GPU acceleration via PyTorch, Mimical has significant computational flexibility, allowing users to tune their settings based on available hardware.
+
+
+**Installation**
+
+Mimical can be installed with pip:
+
+.. code::
+
+    pip install mimical
+
+
+.. image:: docs/fit_example.png
+
+
+**Required input**
+
+#. ``images`` - A list of images with slices for each filter.
+#. ``filt_list`` - A list of path strings to the filter transmission curve files.
+#. ``psfs`` - A list of PSF images with slices for each filter. (Normalised to 1)
+#. ``mimical_prior`` - The Mimical prior (*see below*)
+
+
+**Mimical prior**
+
+Below is an example ``mimical_prior`` for a run using the default Sersic submodel. The first set of element keys must have ``'source'`` and themselves contain keys that match the submodel parameter names. Users can include any number of these to fit multiple-component models. Following this, the next element, named ``psf_pa``, traces the rotation of the PSF. The final two elements must be named ``rms`` and ``counts_per_flux``.
+
+.. code::
+     
+     source_1 = {}
+     source_1['amplitude'] = ((0, 1), 'Individual')
+     source_1['r_eff'] = ((0, 50), 'Polynomial', 1)
+     source_1['n'] = ((0.1, 10), 'Polynomial', 1)
+     source_1['x_0'] = ((48, 52), 'Polynomial', 0)
+     source_1['y_0'] = ((48, 52), 'Polynomial', 0)
+     source_1['ellip'] = ((0,0.75), 'Polynomial', 0)
+     source_1['theta'] = ((0, np.pi), 'Polynomial', 0)
+
+     mimical_prior = {}
+     mimical_prior['source_1'] = source_1
+     mimical_prior['psf_pa'] = ((-180, 180), 'Polynomial', 0)
+     mimical_prior['rms'] = ('Infer', 'Individual')
+     mimical_prior['counts_per_flux'] = (cpf_list, 'Individual')
+
+The ``rms`` parameter traces the RMS noise in the image; this can be fit with Mimical but it is **highly recommended to fix it** in order to reduce dimensionality (see **Fixing parameters**), either by passing it in as a ``float`` / ``array`` / ``list`` of ``floats`` / ``list`` of ``arrays`` of the same length and shape as ``images``, or by selecting the special Mimical prior type ``'Infer'`` which automatically calculates the RMS of the image background as identified by SourceExtractor.
+
+Similarly for ``counts_per_flux``, which allows Mimical to associate poisson uncertainty with the generated model, it is recommended to fix it to a provided quantity (``float`` / ``array`` / ``list`` of ``floats`` / ``list`` of ``arrays`` of the same length and shape as ``images``). This may be challenging to derive, but can be provided by the user with information on the gain, exposure time, etc. To neglect poisson uncertainty, this should be set to a high number (but not too high to effect numerical overflow) e.g. 1e50.
+
+
+**Optional input and parameters**
+
+* ``submodel`` : 2D submodel used to model the underlying intensity profile(s) (Upcoming version will allow multiple submodel types in the same fit).
+* ``se_clean`` : Whether or not to let SourceExtractor clean the input images of contaminants. Must allow 'sex' command via terminal.
+* ``se_maxdist`` : The distance after which the closest detected source is considered a contaminant. Necessary for images in which the target is undetected.
+
+* ``dilute`` : Whether or not to apply a circular miminum filter over the contamination map to dilute it.
+
+* ``dilute_radius`` : If dilute is ``True``, apply minimim filter with radius ``dilute_radius`` over the contamination map.
+
+
+**Fixing parameters**
+
+You can fix any of the parameters in the Mimical prior by setting the first element in the parameter tuple equal to either a float / int / list. For instance, to keep ``x_0`` constant across all images, one would pass a float/int and choose the options ``(float/int, 'Polynomial', 0)``. Or, to supply the ``RMS`` for each image separately, one would pass a 1d array or 3D image cube of length N\ :sub:`filters`\  and choose the options ``(array, 'Individual')``. If the user supplies an image cube for ``RMS`` and/or ``counts-per-flux``, these must be the same shape as the ``images``, and while the corner plot samples will show the mean of these images for generality, the full arrays will be parsed in the likelihood function.
+
+
+**Parallelisation**
+
+Mimical can be parallelised to different cores in one of two ways:
+
+* The likelihood calculations can be parallelised to different cores by using the ``pool`` keyword argument in the ``run`` function. This is ideal for single object fits.
+* When using ``fit_catalogue``, the ``mpi_serial`` keyword arguement can be set to ``True`` for individual object fits to be parallelised to separate cores. With this option enabled, mimical must be run using ``mpirun/mpiexec -n [ncores] python [filename].py``. This is ideal for large catalogue fits.
+
+Running Mimical with both of these options enabled is **untested** but probably infeasible.
+
+**GPU acceleration**
+
+The most computationally expensive step in Mimical is the model generation, which takes place in each likelihood call when a new set of model parameters is sampled. This step has been vectorised and written with PyTorch tensors, such that if a compatible GPU is available (such as an Nvidia card or apple silicon M-series chip) the model generation can be accelerated.

@@ -1,4 +1,6 @@
 import numpy as np
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import corner
 from nautilus import Sampler
@@ -391,7 +393,8 @@ class fit(object):
         corner.corner(self.points.T[self.prior_handler.samplemask].T, weights=np.exp(self.log_w), bins=20, labels=np.array(self.sampler_prior_keys)[self.prior_handler.samplemask], color='black', plot_datapoints=False, range=np.repeat(0.999, np.sum(self.prior_handler.samplemask)))
         #corner.corner(self.points, weights=np.exp(self.log_w), bins=20, labels=np.array(self.sampler_prior_keys), color='black', plot_datapoints=False, range=np.repeat(0.999, len(self.sampler_prior_keys))) 
         plt.savefig(dir_path+f'/mimical_output/plots{self.runtag}/{self.id}_corner.pdf', bbox_inches='tight')
-
+        
+        plt.close('all')
 
 
     def plot_model(self):
@@ -409,4 +412,6 @@ class fit(object):
         # Plot the errors used in fitting
         plotting.plot_errors(self.images, self.wavs, self.mimical_prior, self.image_models, self.points[np.argmax(self.log_l)], self.prior_handler, self.filter_names, self.contmaps)
         plt.savefig(dir_path+f'/mimical_output/plots{self.runtag}/{self.id}_errors.pdf', bbox_inches='tight', dpi=500, transparent=True)
-    
+
+        plt.close('all')
+

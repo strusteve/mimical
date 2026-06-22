@@ -1,0 +1,12 @@
+numpy
+torch
+torchvision
+cmcrameri
+astropy
+scipy
+matplotlib
+nautilus-sampler
+pandas
+corner
+tqdm
+photutils
