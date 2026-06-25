@@ -103,7 +103,7 @@ class fit(object):
         
         # Set and run SourceExtractor if desired
         self.contmaps = np.ones_like(self.images)
-        if se_maxdist=='default': self.se_maxdist = (self.images.shape[1]-1)/5
+        if se_maxdist=='default': self.se_maxdist = 20
         else: self.se_maxdist = se_maxdist
         self.dilute = dilute
         self.dilute_radius = dilute_radius
@@ -187,7 +187,7 @@ class fit(object):
                     bigmask = n_mask[:, None] & r_eff_mask[None, :]
                     oversampling[i] = self.oversampling_table.T[bigmask][0]
                 argmax = np.argmax(np.sum(oversampling, axis=1))
-                self.image_models.update_oversampling(oversample=oversampling[argmax].astype(int).tolist(), oversample_radii=np.array(([1, r_eff_rounded[argmax], 3*r_eff_rounded[argmax]])).tolist())
+                self.image_models.update_oversampling(oversample=oversampling[argmax].astype(int).tolist(), oversample_radii=np.array(([1, max(2,r_eff_rounded[argmax]), max(3, 3*r_eff_rounded[argmax])])).tolist())
 
         # Discretize model to grid
         model = self.image_models.render().cpu().numpy()
@@ -357,8 +357,7 @@ class fit(object):
                 dic[key + "_" + self.filter_names[j] + "_84"] = [quantiles[2, j, i]]
 
         chisq, numd = self.calc_chisq(self.points[np.argmax(self.log_l)])
-        dic['datanum'] = numd
-        dic['chisq'] = chisq
+        dic['red_chisq'] = chisq / (numd-self.prior_handler.ndim)
         df = pd.DataFrame(dic)
 
         # If not part of a catalogue fit, save individual

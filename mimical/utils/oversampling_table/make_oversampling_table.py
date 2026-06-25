@@ -7,7 +7,7 @@ import os
 from ...models import ImageModel
 from ...models import Sersic
 
-device = 'cpu'
+device = 'mps'
 
 install_dir = os.path.dirname(os.path.realpath(__file__))
 
@@ -27,23 +27,25 @@ def make_oversampling_table():
         for j in range(len(n_array)):
             
             # Make perfect reference image
-            reference_model = ImageModel(torch.arange(101, device=device), torch.arange(101, device=device), [Sersic()], None, 0., oversample=100)
-            reference_model.update_parameters(torch.tensor([100, r_eff_array[i], n_array[j], 50, 50, 0, 0]).to(torch.float32).to(device=device).unsqueeze(0), 0)
+            reference_model = ImageModel(torch.arange(101, device=device), torch.arange(101, device=device), [Sersic()], None, 0., oversample=[10000, 100, 50], oversample_radii=[1, max(2, r_eff_array[i]), max(3, 3*r_eff_array[i])])
+            reference_model.update_parameters(torch.tensor([1000, r_eff_array[i], n_array[j], 50, 50, 0, 0]).to(torch.float32).to(device=device).unsqueeze(0), 0)
             reference_image = reference_model.render().cpu()
+    
 
             # Initiate starting factor and radii values
             osam = [1,1,1]
-            orad = [1, r_eff_array[i], 3*r_eff_array[i]]
+            orad = [1, max(2, r_eff_array[i]), max(3, 3*r_eff_array[i])]
 
             # Loop over radii 
             for k in range(3):
-
+                
                 # While the maximum residual is greater than one 1000th the maximum reference image value.
                 while True:
                     
                     # Make current model
+
                     model = ImageModel(torch.arange(101, device=device), torch.arange(101, device=device), [Sersic()], None, 0., oversample=osam, oversample_radii=orad)
-                    model.update_parameters(torch.tensor([100, r_eff_array[i], n_array[j], 50, 50, 0, 0]).to(torch.float32).to(device=device).unsqueeze(0), 0)
+                    model.update_parameters(torch.tensor([1000, r_eff_array[i], n_array[j], 50, 50, 0, 0]).to(torch.float32).to(device=device).unsqueeze(0), 0)
                     image = model.render().cpu()
 
                     # Calculate residuals with reference model
@@ -65,19 +67,20 @@ def make_oversampling_table():
                         break
                     
                     # If criterion reached or maxed out, break
-                    if (torch.max(residual[0][curr_mask]) < 0.01) | (osam[k]==100):
+                    if (torch.max(residual[0][curr_mask]) < 0.01) | (osam[k]==1000):
                         break
                     # If not, continue
                     else:
                         osam[k]+=1
                         continue
             
+            
             # Save table
             tabledat[i,j] = osam
 
-    np.savetxt(install_dir + '/table1_values.txt', tabledat[:,:,0], fmt='%.0f')
-    np.savetxt(install_dir + '/table2_values.txt', tabledat[:,:,1], fmt='%.0f')
-    np.savetxt(install_dir + '/table3_values.txt', tabledat[:,:,2], fmt='%.0f')
+            np.savetxt(install_dir + '/table1_values.txt', tabledat[:,:,0], fmt='%.0f')
+            np.savetxt(install_dir + '/table2_values.txt', tabledat[:,:,1], fmt='%.0f')
+            np.savetxt(install_dir + '/table3_values.txt', tabledat[:,:,2], fmt='%.0f')
 
 
 
