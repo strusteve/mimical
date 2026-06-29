@@ -24,7 +24,7 @@ def plot_best(images, wavs, image_models, best_sample, prior_handler, filter_nam
     psfarr = param_dict[:,np.sum(prior_handler.nsources)]
 
     # Generate best model
-    image_models.update_parameters(torch.tensor(pars, dtype=torch.float32, device=image_models.psf.device), torch.tensor(psfarr, dtype=torch.float32, device=image_models.psf.device))
+    image_models.update_parameters(torch.tensor(pars, dtype=torch.float32, device=image_models.x.device), torch.tensor(psfarr, dtype=torch.float32, device=image_models.x.device))
     models = image_models.render().cpu().numpy()
     residuals = (images-models)*segmaps
 
@@ -179,13 +179,16 @@ def plot_errors(images, wavs, mimical_prior, image_models, best_sample, prior_ha
     cpfarr = reverted[:,np.sum(prior_handler.nsources)+2]
 
     # If user provides RMS values, override prior sample - necessary to recover full arrays
-    if isinstance(mimical_prior['rms'][0], np.ndarray):
-        rmsarr = np.array([mimical_prior['rms'][0]])
-    # If user provides counts-per-flux parameters, override prior sample - necessary to recover full arrays
-    if isinstance(mimical_prior['counts_per_flux'][0], np.ndarray):
-        cpfarr = mimical_prior['counts_per_flux'][0]
+    if isinstance(mimical_prior['rms'][0], list):
+        if isinstance(mimical_prior['rms'][0][0], np.ndarray):
+            rmsarr = np.array(mimical_prior['rms'][0])
 
-    image_models.update_parameters(torch.tensor(pars, dtype=torch.float32, device=image_models.psf.device), torch.tensor(psfarr, dtype=torch.float32, device=image_models.psf.device))
+    # If user provides counts-per-flux parameters, override prior sample - necessary to recover full arrays
+    if isinstance(mimical_prior['counts_per_flux'][0], list):
+        if isinstance(mimical_prior['counts_per_flux'][0][0], np.ndarray):
+            cpfarr = np.array(mimical_prior['counts_per_flux'][0])
+
+    image_models.update_parameters(torch.tensor(pars, dtype=torch.float32, device=image_models.x.device), torch.tensor(psfarr, dtype=torch.float32, device=image_models.x.device))
     models = image_models.render().cpu().numpy()
 
     # Create master lists for appending

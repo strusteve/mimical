@@ -6,6 +6,7 @@ import time
 import os
 import pandas as pd
 import torch
+from scipy.interpolate import RegularGridInterpolator
 
 from ..priors.prior_handler import priorHandler
 from ..plotting import plotting
@@ -79,7 +80,10 @@ class fit(object):
         self.id = id
         self.images = np.array((images))
         self.filt_list = filt_list
-        self.psfs = np.array((psfs))
+        if psfs is not None:
+            self.psfs = np.array((psfs))
+        else:
+            self.psfs = psfs
         self.mimical_prior = mimical_prior
         print(f"Fitting object {self.id}.")
 
@@ -161,25 +165,28 @@ class fit(object):
         cpfarr = reverted[:,np.sum(self.prior_handler.nsources)+2]
         
         # If user provides RMS per pixel, override prior sample - necessary to recover full arrays
-        if isinstance(self.mimical_prior['rms'][0], np.ndarray):
-            rmsarr = np.array([self.mimical_prior['rms'][0]])
+        if isinstance(self.mimical_prior['rms'][0], list):
+            if isinstance(self.mimical_prior['rms'][0][0], np.ndarray):
+                rmsarr = np.array(self.mimical_prior['rms'][0])
         # If user wants mimical to infer RMS from image background, do so
         elif (isinstance(self.mimical_prior['rms'][0], str)):
             if (self.mimical_prior['rms'][0] == "Infer"):
                 if not self.se_clean: raise Exception("If using the 'Infer' special type for RMS, must set se_clean=True.")
     
         # If user provides counts-per-flux per pixel, override prior sample - necessary to recover full arrays
-        if isinstance(self.mimical_prior['counts_per_flux'][0], np.ndarray):
-                cpfarr = self.mimical_prior['counts_per_flux'][0]
+        if isinstance(self.mimical_prior['counts_per_flux'][0], list):
+            if isinstance(self.mimical_prior['counts_per_flux'][0][0], np.ndarray):
+                    cpfarr = np.array(self.mimical_prior['counts_per_flux'][0])
 
         # Update the model for sampled parameters
         self.image_models.update_parameters(torch.tensor(modelpars.astype(np.float32), device=self.accelerator), torch.tensor(psfarr.astype(np.float32), device=self.accelerator))
 
+        '''
         # Update oversampling if 'auto' is chosen
         if isinstance(self.oversample, str):
             if self.oversample == 'auto':
-                r_eff_rounded = np.maximum(0.1, np.round(modelpars[:,1]))
-                n_rounded = np.round(modelpars[:,2], 1)
+                r_eff_rounded = np.maximum(0.1, np.floor(modelpars[:,1]))
+                n_rounded = (np.ceil(modelpars[:,2]*10))/10
                 oversampling = np.zeros((len(r_eff_rounded), 3))
                 for i in range(len(r_eff_rounded)):
                     r_eff_mask = self.r_eff_indices == r_eff_rounded[i]
@@ -188,6 +195,22 @@ class fit(object):
                     oversampling[i] = self.oversampling_table.T[bigmask][0]
                 argmax = np.argmax(np.sum(oversampling, axis=1))
                 self.image_models.update_oversampling(oversample=oversampling[argmax].astype(int).tolist(), oversample_radii=np.array(([1, max(2,r_eff_rounded[argmax]), max(3, 3*r_eff_rounded[argmax])])).tolist())
+        '''
+
+        # Update oversampling if 'auto' is chosen
+        if isinstance(self.oversample, str):
+            if self.oversample == 'auto':
+
+                r_eff = modelpars[:,1]
+                n = modelpars[:,2]
+                oversamp_1 = self.oversampling_interpolator_1(np.array((r_eff, n)).T)
+                oversamp_2 = self.oversampling_interpolator_2(np.array((r_eff, n)).T)
+                oversamp_3 = self.oversampling_interpolator_3(np.array((r_eff, n)).T)
+                oversampling = np.maximum(1, np.round(np.vstack([oversamp_1, oversamp_2, oversamp_3]).T))
+                argmax = np.argmax(np.sum(oversampling, axis=1))
+
+                self.image_models.update_oversampling(oversample=oversampling[argmax].astype(int).tolist(), oversample_radii=np.array(([1, max(2,r_eff[argmax]), max(3, 3*r_eff[argmax])])).tolist())
+
 
         # Discretize model to grid
         model = self.image_models.render().cpu().numpy()
@@ -297,8 +320,15 @@ class fit(object):
                 self.n_indices = np.loadtxt(tabledir + f'/n_values.txt')
                 self.r_eff_indices = np.loadtxt(tabledir + f'/r_eff_values.txt')
                 self.oversampling_table = np.c_[[np.loadtxt(tabledir + f'/table{i+1}_values.txt') for i in range(3)]]
-            
-        
+                R_EFF, N = np.meshgrid(self.r_eff_indices, self.n_indices)
+                #self.oversampling_interpolator_1 = LinearNDInterpolator(np.array([R_EFF.flatten(), N.flatten()]).T, self.oversampling_table[0].T.flatten())
+                #self.oversampling_interpolator_2 = LinearNDInterpolator(np.array([R_EFF.flatten(), N.flatten()]).T, self.oversampling_table[1].T.flatten())
+                #self.oversampling_interpolator_3 = LinearNDInterpolator(np.array([R_EFF.flatten(), N.flatten()]).T, self.oversampling_table[2].T.flatten())
+                self.oversampling_interpolator_1 = RegularGridInterpolator((self.r_eff_indices, self.n_indices), self.oversampling_table[0], method='cubic')
+                self.oversampling_interpolator_2 = RegularGridInterpolator((self.r_eff_indices, self.n_indices), self.oversampling_table[1], method='cubic')
+                self.oversampling_interpolator_3 = RegularGridInterpolator((self.r_eff_indices, self.n_indices), self.oversampling_table[2], method='cubic')
+
+                
         # Check if a posterior already exists for the object being fitted, if so - load it
         if os.path.isfile(dir_path+f'/mimical_output/posteriors{self.runtag}' + f'/{self.id}_points.txt'):
             self.points = np.loadtxt(dir_path+f"/mimical_output/posteriors{self.runtag}/{self.id}_points.txt", dtype=np.float32)
@@ -315,6 +345,7 @@ class fit(object):
             print(f"Sampling time (minutes): {(time.time()-t0)/60}")
             self.points, self.log_w, self.log_l = sampler.posterior()
             self.save_output()
+
 
 
     def calc_chisq(self, param_vec):

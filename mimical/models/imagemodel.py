@@ -219,7 +219,7 @@ class ImageModel(object):
 
     def annuli_oversampling(self, model, oversample, oversample_radii):
         """ Oversampling in annulii of radii 'oversample_radii' by the factors 'oversample'. """
-
+        
         # Make a centred coordinate grid
         model_image = torch.zeros(model.params.shape[0], *self.base_xgrid.shape, device=self.x.device)
         #centred_base_xgrid = self.base_xgrid - ((self.x.shape[0]-1) / 2)

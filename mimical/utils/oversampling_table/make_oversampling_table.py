@@ -13,9 +13,9 @@ install_dir = os.path.dirname(os.path.realpath(__file__))
 
 def make_oversampling_table():
     # Grid in 'r_eff' and 'n' parameter space
-    n_array = torch.arange(0.1,10.1,0.1)
+    n_array = torch.linspace(0.1, 10, 20)
     np.savetxt(install_dir + '/n_values.txt', n_array, fmt='%.1f')
-    r_eff_array = np.append(0.1, np.arange(1,21,1))
+    r_eff_array = torch.linspace(0.1, 20, 20)
     np.savetxt(install_dir + '/r_eff_values.txt', r_eff_array, fmt='%.1f')
 
     # Table to append oversampling factors to
@@ -27,7 +27,7 @@ def make_oversampling_table():
         for j in range(len(n_array)):
             
             # Make perfect reference image
-            reference_model = ImageModel(torch.arange(101, device=device), torch.arange(101, device=device), [Sersic()], None, 0., oversample=[10000, 100, 50], oversample_radii=[1, max(2, r_eff_array[i]), max(3, 3*r_eff_array[i])])
+            reference_model = ImageModel(torch.arange(101, device=device), torch.arange(101, device=device), [Sersic()], None, 0., oversample=[10000, 300, 100], oversample_radii=[1, max(2, r_eff_array[i]), max(3, 3*r_eff_array[i])])
             reference_model.update_parameters(torch.tensor([1000, r_eff_array[i], n_array[j], 50, 50, 0, 0]).to(torch.float32).to(device=device).unsqueeze(0), 0)
             reference_image = reference_model.render().cpu()
     
@@ -41,15 +41,17 @@ def make_oversampling_table():
                 
                 # While the maximum residual is greater than one 1000th the maximum reference image value.
                 while True:
-                    
-                    # Make current model
 
+    
+                    # Make current model
                     model = ImageModel(torch.arange(101, device=device), torch.arange(101, device=device), [Sersic()], None, 0., oversample=osam, oversample_radii=orad)
                     model.update_parameters(torch.tensor([1000, r_eff_array[i], n_array[j], 50, 50, 0, 0]).to(torch.float32).to(device=device).unsqueeze(0), 0)
                     image = model.render().cpu()
 
-                    # Calculate residuals with reference model
-                    residual = torch.abs(reference_image - image) / torch.max(reference_image)
+                    # Calculate residual ratio w.r.t reference model
+                    residual = torch.abs(reference_image - image) / torch.abs(reference_image)
+                    # Fix div by 0
+                    residual[~torch.isfinite(residual)] = 0
 
                     # Create mask for pixels within current radii
                     base_xgrid, base_ygrid = torch.meshgrid(torch.arange(101), torch.arange(101), indexing='xy')
@@ -69,6 +71,7 @@ def make_oversampling_table():
                     # If criterion reached or maxed out, break
                     if (torch.max(residual[0][curr_mask]) < 0.01) | (osam[k]==1000):
                         break
+
                     # If not, continue
                     else:
                         osam[k]+=1
