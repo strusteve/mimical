@@ -1,4 +1,9 @@
 include mimical/config/sextractor_config/default.param
 include mimical/config/sextractor_config/gauss_2.5_5x5.conv
 include mimical/config/sextractor_config/jwst_default_segmap.config
+include mimical/utils/oversampling_table/r_eff_values.txt
+include mimical/utils/oversampling_table/n_values.txt
+include mimical/utils/oversampling_table/table1_values.txt
+include mimical/utils/oversampling_table/table2_values.txt
+include mimical/utils/oversampling_table/table3_values.txt
 include LICENSE.txt
