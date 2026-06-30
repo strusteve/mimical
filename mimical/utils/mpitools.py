@@ -15,12 +15,12 @@ except ImportError:
 
 def mpi_split_array(array):
     """ Distributes array elements to cores when using mpi. """
-    if size > 1: # If running on more than one core
+    if size > 1:  # If running on more than one core
 
         n_per_core = array.shape[0]//size
 
         # How many are left over after division between cores
-        remainder = array.shape[0]%size
+        remainder = array.shape[0] % size
 
         if rank == 0:
             if remainder == 0:
@@ -50,12 +50,12 @@ def mpi_split_array(array):
 
 def mpi_combine_array(core_array, total_len):
     """ Combines array sections from different cores. """
-    if size > 1: # If running on more than one core
+    if size > 1:  # If running on more than one core
 
         n_per_core = total_len//size
 
         # How many are left over after division between cores
-        remainder = total_len%size
+        remainder = total_len % size
 
         if rank != 0:
             comm.send(core_array, dest=0)
@@ -81,6 +81,3 @@ def mpi_combine_array(core_array, total_len):
         array = core_array
 
     return array
-
-
-

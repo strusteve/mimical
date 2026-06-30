@@ -30,8 +30,7 @@ class filter_set(object):
         self.filt_dict = {}
 
         for filt in self.filt_list:
-                self.filt_dict[filt] = np.loadtxt(filt, usecols=(0, 1))
-
+            self.filt_dict[filt] = np.loadtxt(filt, usecols=(0, 1))
 
     def _calculate_min_max_wavelengths(self):
         """ Finds the min and max wavelength values across all of the
@@ -64,11 +63,10 @@ class filter_set(object):
             filt = self.filt_list[i]
             dlambda = self.make_bins(self.filt_dict[filt][:, 0])[1]
             filt_weights = dlambda*self.filt_dict[filt][:, 1]
-            self.eff_wavs[i] = np.sqrt(np.sum(filt_weights*self.filt_dict[filt][:, 0])
+            self.eff_wavs[i] = np.sqrt(np.sum(filt_weights *
+                                              self.filt_dict[filt][:, 0])
                                        / np.sum(filt_weights
-                                       / self.filt_dict[filt][:, 0]))
-            
-
+                                                / self.filt_dict[filt][:, 0]))
 
     def make_bins(self, midpoints, make_rhs=False):
         """ A general function for turning an array of bin midpoints into an
@@ -103,7 +101,6 @@ class filter_set(object):
             bin_widths[:-1] = bin_lhs[1:]-bin_lhs[:-1]
 
         return bin_lhs, bin_widths
-    
 
     def resample_filter_curves(self, wavelengths):
         """ Resamples the filter curves onto a new set of wavelengths
@@ -123,7 +120,7 @@ class filter_set(object):
                                               self.filt_dict[filt][:, 0],
                                               self.filt_dict[filt][:, 1],
                                               left=0, right=0)
-            
+
     def get_photometry(self, spectrum, redshift, unit_conv=None):
         """ Calculates photometric fluxes. The filters are first re-
         sampled onto the same wavelength grid with transmission values
@@ -145,7 +142,7 @@ class filter_set(object):
 
         if self.wavelengths is None:
             raise ValueError("Please use resample_filter_curves method to set"
-                            + " wavelengths before calculating photometry.")
+                             " wavelengths before calculating photometry.")
 
         redshifted_wavs = self.wavelengths*(1. + redshift)
 

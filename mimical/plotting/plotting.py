@@ -7,9 +7,9 @@ import torch
 fs = 6
 
 
-
-def plot_best(images, wavs, image_models, best_sample, prior_handler, filter_names, segmaps):
-    """ Plots the maximum likelihood model and residuals."""
+def plot_best(images, wavs, image_models, best_sample, prior_handler,
+              filter_names, segmaps):
+    """ Plots the maximum likelihood model and resid."""
 
     # Pass segmaps through images
     images *= segmaps
@@ -18,72 +18,92 @@ def plot_best(images, wavs, image_models, best_sample, prior_handler, filter_nam
     fig = plt.figure()
     gs = fig.add_gridspec(nrows=4, ncols=len(images))
 
-    # Get median Nautilus parameters and transalte into median model parameters.
+    # Get median parameters and translate into median model parameters.
     param_dict = prior_handler.revert(best_sample)
-    pars = param_dict[:,:np.sum(prior_handler.nsources)]
-    psfarr = param_dict[:,np.sum(prior_handler.nsources)]
+    pars = param_dict[:, :np.sum(prior_handler.nsources)]
+    psfarr = param_dict[:, np.sum(prior_handler.nsources)]
 
     # Generate best model
-    image_models.update_parameters(torch.tensor(pars, dtype=torch.float32, device=image_models.x.device), torch.tensor(psfarr, dtype=torch.float32, device=image_models.x.device))
+    image_models.update_parameters(torch.tensor(pars, dtype=torch.float32,
+                                                device=image_models.x.device),
+                                   torch.tensor(psfarr, dtype=torch.float32,
+                                                device=image_models.x.device))
     models = image_models.render().cpu().numpy()
-    residuals = (images-models)*segmaps
+    resid = (images-models)*segmaps
 
     # Set vmins
-    vmins = [-max([np.percentile(x.flatten(), q=99.9) for x in images]), 
-             -max([np.percentile(x.flatten(), q=99.9) for x in images]), 
-             -max([np.percentile(x.flatten(), q=99.9) for x in images]), 
-              min(min([np.percentile(x.flatten(), q=1) for x in residuals]), -max([-np.percentile(x.flatten(), q=99) for x in residuals]))]
-    
+    vmins = [-max([np.percentile(x.flatten(), q=99.9) for x in images]),
+             -max([np.percentile(x.flatten(), q=99.9) for x in images]),
+             -max([np.percentile(x.flatten(), q=99.9) for x in images]),
+             min(min([np.percentile(x.flatten(), q=1) for x in resid]),
+                 -max([-np.percentile(x.flatten(), q=99) for x in resid]))]
+
     # Set vmaxs
-    vmaxs = [max([np.percentile(x.flatten(), q=99.9) for x in images]), 
-             max([np.percentile(x.flatten(), q=99.9) for x in images]), 
-             max([np.percentile(x.flatten(), q=99.9) for x in images]), 
-             max( -min([np.percentile(x.flatten(), q=1) for x in residuals]), max([-np.percentile(x.flatten(), q=99) for x in residuals]))]
-    
-    # Loop over filters and plot
+    vmaxs = [max([np.percentile(x.flatten(), q=99.9) for x in images]),
+             max([np.percentile(x.flatten(), q=99.9) for x in images]),
+             max([np.percentile(x.flatten(), q=99.9) for x in images]),
+             max(-min([np.percentile(x.flatten(), q=1) for x in resid]),
+                 max([-np.percentile(x.flatten(), q=99) for x in resid]))]
+
+    # Loop over filters and plot
     for i in range(len(wavs)):
 
-        plotims = [images[i], models[i], residuals[i], residuals[i]]
+        plotims = [images[i], models[i], resid[i], resid[i]]
 
         for j in range(4):
 
             ax = fig.add_subplot(gs[j, i])
-            im = ax.pcolormesh(plotims[j], vmax=vmaxs[j], vmin=vmins[j], cmap=cmc.managua_r, rasterized=True)
+            im = ax.pcolormesh(plotims[j], vmax=vmaxs[j], vmin=vmins[j],
+                               cmap=cmc.managua_r, rasterized=True)
             ax.set_yticks([])
             ax.set_xticks([])
             ax.set_axis_off()
 
-            if j==0:
-                ax.text(0.95, 0.95, filter_names[i].upper(), fontsize=fs, transform=ax.transAxes, ha='right', va='top', color='white')
+            if j == 0:
+                ax.text(0.95, 0.95, filter_names[i].upper(), fontsize=fs,
+                        transform=ax.transAxes, ha='right', va='top',
+                        color='white')
 
-            if i==0:
-                if j==0:
-                    ax.text(0.05, 0.05, 'Data', fontsize=fs, transform=ax.transAxes, ha='left', va='bottom', color='white')
-                if j==1:
-                    ax.text(0.05, 0.05, 'Model', fontsize=fs, transform=ax.transAxes, ha='left', va='bottom', color='white')
-                if j==2:
-                    ax.text(0.05, 0.05, 'Residual', fontsize=fs, transform=ax.transAxes, ha='left', va='bottom', color='white')
-                if j==3:
-                    ax.text(0.05, 0.05, 'Residual\nZoom', fontsize=fs, transform=ax.transAxes, ha='left', va='bottom', color='white')
+            if i == 0:
+                if j == 0:
+                    ax.text(0.05, 0.05, 'Data', fontsize=fs,
+                            transform=ax.transAxes, ha='left', va='bottom',
+                            color='white')
+                if j == 1:
+                    ax.text(0.05, 0.05, 'Model', fontsize=fs,
+                            transform=ax.transAxes, ha='left', va='bottom',
+                            color='white')
+                if j == 2:
+                    ax.text(0.05, 0.05, 'Residual', fontsize=fs,
+                            transform=ax.transAxes, ha='left', va='bottom',
+                            color='white')
+                if j == 3:
+                    ax.text(0.05, 0.05, 'Residual\nZoom', fontsize=fs,
+                            transform=ax.transAxes, ha='left', va='bottom',
+                            color='white')
 
     plt.subplots_adjust(hspace=0.02, wspace=0.02)
-    fig.set_size_inches(len(images),4, forward=True)
-
+    fig.set_size_inches(len(images), 4, forward=True)
 
 
 def plot_trends(wavs, samples, mimical_prior, prior_handler, mimical_keys):
-    """ For a multi-band fit, plot the 2D model parameter relationship with filter wavelength. """
+    """ Plot the 2D model parameter relationship with filter wavelength. """
 
     # Convert multi-band samples into model parameter samples
-    samples_mimical = np.apply_along_axis(lambda samp: prior_handler.revert(samp).flatten(), 1, samples).reshape(samples.shape[0], len(wavs), len(mimical_keys))
+    samples_mimical = np.apply_along_axis(lambda samp:
+                                          prior_handler.revert(samp).flatten(),
+                                          1, samples)
+    samples_mimical = samples_mimical.reshape(samples.shape[0], len(wavs),
+                                              len(mimical_keys))
 
     # Get model parameter posterior stats
-    stats = np.percentile(samples_mimical, axis=0, q=(0.15,2.5,16,50,84,97.5,99.85))
+    stats = np.percentile(samples_mimical, axis=0,
+                          q=(0.15, 2.5, 16, 50, 84, 97.5, 99.85))
 
     # Loop over model parameters
-    fig, ax = plt.subplots(len(mimical_keys)//3+len(mimical_keys)%3, 3)
+    fig, ax = plt.subplots(len(mimical_keys)//3+len(mimical_keys) % 3, 3)
 
-    axcount = 0
+    axc = 0
     for i in range(len(list(mimical_prior.keys()))):
 
         priorkey = list(mimical_prior.keys())[i]
@@ -94,101 +114,133 @@ def plot_trends(wavs, samples, mimical_prior, prior_handler, mimical_keys):
 
                 subkey = list(mimical_prior[priorkey].keys())[j]
 
-                ax.flatten()[axcount].fill_between(wavs, stats[0].T[axcount], stats[6].T[axcount], color='black', alpha=0.05, lw=0)
-                ax.flatten()[axcount].fill_between(wavs, stats[1].T[axcount], stats[5].T[axcount], color='black', alpha=0.1, lw=0)
-                ax.flatten()[axcount].fill_between(wavs, stats[2].T[axcount], stats[4].T[axcount], color='black', alpha=0.25, lw=0)
-                ax.flatten()[axcount].plot(wavs, stats[3].T[axcount], color='black')
-                ax.flatten()[axcount].set_ylabel(mimical_keys[axcount])
-                ax.flatten()[axcount].set_xlabel('$\\lambda$')
+                ax.flatten()[axc].fill_between(wavs, stats[0].T[axc],
+                                               stats[6].T[axc], color='black',
+                                               alpha=0.05, lw=0)
+                ax.flatten()[axc].fill_between(wavs, stats[1].T[axc],
+                                               stats[5].T[axc], color='black',
+                                               alpha=0.1, lw=0)
+                ax.flatten()[axc].fill_between(wavs, stats[2].T[axc],
+                                               stats[4].T[axc], color='black',
+                                               alpha=0.25, lw=0)
+                ax.flatten()[axc].plot(wavs, stats[3].T[axc], color='black')
+                ax.flatten()[axc].set_ylabel(mimical_keys[axc])
+                ax.flatten()[axc].set_xlabel('$\\lambda$')
 
                 labstr = ''
                 if mimical_prior[priorkey][subkey][1] == 'Individual':
-                    labstr+= 'Individual'
+                    labstr += 'Individual'
                 else:
-                    labstr+=f'{mimical_prior[priorkey][subkey][1]}, {mimical_prior[priorkey][subkey][2]}'
+                    labstr += f'{mimical_prior[priorkey][subkey][1]}, ' +\
+                              f'{mimical_prior[priorkey][subkey][2]}'
 
                 if isinstance(mimical_prior[priorkey][subkey][0], tuple):
-                    labstr+='\nFitted'
+                    labstr += '\nFitted'
                 elif isinstance(mimical_prior[priorkey][subkey][0], str):
                     if mimical_prior[priorkey][subkey][0] == 'Infer':
-                        labstr+='\nInferred'
+                        labstr += '\nInferred'
                 else:
-                    labstr+='\nFixed'
+                    labstr += '\nFixed'
 
-                ax.flatten()[axcount].text(0.95, 0.95, labstr, fontsize=fs, transform=ax.flatten()[axcount].transAxes, ha='right', va='top', color='black', bbox=dict(boxstyle='round', facecolor='white', alpha=0.75))
-                ax.flatten()[axcount].xaxis.set_major_locator(AutoLocator())
-                ax.flatten()[axcount].xaxis.set_minor_locator(AutoMinorLocator())
-                ax.flatten()[axcount].yaxis.set_major_locator(AutoLocator())
-                ax.flatten()[axcount].yaxis.set_minor_locator(AutoMinorLocator())
-                ax.flatten()[axcount].tick_params(which='both', direction='in', top=True, right=True)
+                ax.flatten()[axc].text(0.95, 0.95, labstr, fontsize=fs,
+                                       transform=ax.flatten()[axc].transAxes,
+                                       ha='right', va='top', color='black',
+                                       bbox=dict(boxstyle='round',
+                                                 facecolor='white',
+                                                 alpha=0.75))
+                ax.flatten()[axc].xaxis.set_major_locator(AutoLocator())
+                ax.flatten()[axc].xaxis.set_minor_locator(AutoMinorLocator())
+                ax.flatten()[axc].yaxis.set_major_locator(AutoLocator())
+                ax.flatten()[axc].yaxis.set_minor_locator(AutoMinorLocator())
+                ax.flatten()[axc].tick_params(which='both', direction='in',
+                                              top=True, right=True)
 
-                axcount += 1
-            
+                axc += 1
+
         else:
 
-            ax.flatten()[axcount].fill_between(wavs, stats[0].T[axcount], stats[6].T[axcount], color='black', alpha=0.05, lw=0)
-            ax.flatten()[axcount].fill_between(wavs, stats[1].T[axcount], stats[5].T[axcount], color='black', alpha=0.1, lw=0)
-            ax.flatten()[axcount].fill_between(wavs, stats[2].T[axcount], stats[4].T[axcount], color='black', alpha=0.25, lw=0)
-            ax.flatten()[axcount].plot(wavs, stats[3].T[axcount], color='black')
-            ax.flatten()[axcount].set_ylabel(mimical_keys[axcount])
-            ax.flatten()[axcount].set_xlabel('$\\lambda$')
+            ax.flatten()[axc].fill_between(wavs, stats[0].T[axc],
+                                           stats[6].T[axc], color='black',
+                                           alpha=0.05, lw=0)
+            ax.flatten()[axc].fill_between(wavs, stats[1].T[axc],
+                                           stats[5].T[axc], color='black',
+                                           alpha=0.1, lw=0)
+            ax.flatten()[axc].fill_between(wavs, stats[2].T[axc],
+                                           stats[4].T[axc], color='black',
+                                           alpha=0.25, lw=0)
+            ax.flatten()[axc].plot(wavs, stats[3].T[axc], color='black')
+            ax.flatten()[axc].set_ylabel(mimical_keys[axc])
+            ax.flatten()[axc].set_xlabel('$\\lambda$')
 
             labstr = ''
             if mimical_prior[priorkey][1] == 'Individual':
-                labstr+= 'Individual'
+                labstr += 'Individual'
             else:
-                labstr+=f'{mimical_prior[priorkey][1]}, {mimical_prior[priorkey][2]}'
+                labstr += f'{mimical_prior[priorkey][1]}, ' +\
+                          f'{mimical_prior[priorkey][2]}'
             if isinstance(mimical_prior[priorkey][0], tuple):
-                labstr+='\nFitted'
+                labstr += '\nFitted'
             elif isinstance(mimical_prior[priorkey][0], str):
                 if mimical_prior[priorkey][0] == 'Infer':
-                    labstr+='\nInferred'
+                    labstr += '\nInferred'
             else:
-                labstr+='\nFixed'
+                labstr += '\nFixed'
 
-            ax.flatten()[axcount].text(0.95, 0.95, labstr, fontsize=fs, transform=ax.flatten()[axcount].transAxes, ha='right', va='top', color='black', bbox=dict(boxstyle='round', facecolor='white', alpha=0.75))
-            ax.flatten()[axcount].xaxis.set_major_locator(AutoLocator())
-            ax.flatten()[axcount].xaxis.set_minor_locator(AutoMinorLocator())
-            ax.flatten()[axcount].yaxis.set_major_locator(AutoLocator())
-            ax.flatten()[axcount].yaxis.set_minor_locator(AutoMinorLocator())
-            ax.flatten()[axcount].tick_params(which='both', direction='in', top=True, right=True)
+            ax.flatten()[axc].text(0.95, 0.95, labstr, fontsize=fs,
+                                   transform=ax.flatten()[axc].transAxes,
+                                   ha='right', va='top', color='black',
+                                   bbox=dict(boxstyle='round',
+                                             facecolor='white',
+                                             alpha=0.75))
+            ax.flatten()[axc].xaxis.set_major_locator(AutoLocator())
+            ax.flatten()[axc].xaxis.set_minor_locator(AutoMinorLocator())
+            ax.flatten()[axc].yaxis.set_major_locator(AutoLocator())
+            ax.flatten()[axc].yaxis.set_minor_locator(AutoMinorLocator())
+            ax.flatten()[axc].tick_params(which='both', direction='in',
+                                          top=True, right=True)
 
-            axcount += 1
-        
-    for k in range(len(ax.flatten())-axcount):
+            axc += 1
+
+    for k in range(len(ax.flatten())-axc):
         ax.flatten()[-(k+1)].set_axis_off()
 
-    fig.set_size_inches(7.03058, ((len(mimical_keys)//3+len(mimical_keys)%3)/3) * 7.03058)
+    fig.set_size_inches(7.03058,
+                        ((len(mimical_keys)//3+len(mimical_keys) % 3)/3)
+                        * 7.03058)
     fig.tight_layout()
 
 
-
-def plot_errors(images, wavs, mimical_prior, image_models, best_sample, prior_handler, filter_names, segmaps):
-    """ Provides a summary of the individual errors used in the analysis based on the maximum likelihood model. """
+def plot_errors(images, wavs, mimical_prior, image_models, best_sample,
+                prior_handler, filter_names, segmaps):
+    """ Provides a summary of the individual errors present in best model. """
 
     # Initiate plot
     fig = plt.figure()
-    gs = fig.add_gridspec(nrows=4, ncols=len(images)+1, width_ratios=np.append(np.ones(len(images)), 0.25))
+    gs = fig.add_gridspec(nrows=4, ncols=len(images)+1,
+                          width_ratios=np.append(np.ones(len(images)), 0.25))
 
     # Translate best sample into per-filter model parameters.
     param_dict = best_sample
     reverted = prior_handler.revert(param_dict)
-    pars = reverted[:,:np.sum(prior_handler.nsources)]
-    psfarr = reverted[:,np.sum(prior_handler.nsources)]
-    rmsarr = reverted[:,np.sum(prior_handler.nsources)+1]
-    cpfarr = reverted[:,np.sum(prior_handler.nsources)+2]
+    pars = reverted[:, :np.sum(prior_handler.nsources)]
+    psfarr = reverted[:, np.sum(prior_handler.nsources)]
+    rmsarr = reverted[:, np.sum(prior_handler.nsources)+1]
+    cpfarr = reverted[:, np.sum(prior_handler.nsources)+2]
 
-    # If user provides RMS values, override prior sample - necessary to recover full arrays
+    # If user provides RMS values, override prior sample
     if isinstance(mimical_prior['rms'][0], list):
         if isinstance(mimical_prior['rms'][0][0], np.ndarray):
             rmsarr = np.array(mimical_prior['rms'][0])
 
-    # If user provides counts-per-flux parameters, override prior sample - necessary to recover full arrays
+    # If user provides counts-per-flux parameters, override prior sample
     if isinstance(mimical_prior['counts_per_flux'][0], list):
         if isinstance(mimical_prior['counts_per_flux'][0][0], np.ndarray):
             cpfarr = np.array(mimical_prior['counts_per_flux'][0])
 
-    image_models.update_parameters(torch.tensor(pars, dtype=torch.float32, device=image_models.x.device), torch.tensor(psfarr, dtype=torch.float32, device=image_models.x.device))
+    image_models.update_parameters(torch.tensor(pars, dtype=torch.float32,
+                                                device=image_models.x.device),
+                                   torch.tensor(psfarr, dtype=torch.float32,
+                                                device=image_models.x.device))
     models = image_models.render().cpu().numpy()
 
     # Create master lists for appending
@@ -198,21 +250,23 @@ def plot_errors(images, wavs, mimical_prior, image_models, best_sample, prior_ha
     ratio = (poissonerr/(poissonerr+rmserr))*100
 
     # Set vmins
-    vmins = [-np.max(([x.max() for x in sigmaerr])), 
-             -np.max(([x.max() for x in sigmaerr])), 
-             -np.max(([x.max() for x in sigmaerr])), 
+    vmins = [-np.max(([x.max() for x in sigmaerr])),
+             -np.max(([x.max() for x in sigmaerr])),
+             -np.max(([x.max() for x in sigmaerr])),
              0]
-    
+
     # Set vmaxs
-    vmaxs = [np.max(([x.max() for x in sigmaerr])), 
-             np.max(([x.max() for x in sigmaerr])), 
-             np.max(([x.max() for x in sigmaerr])), 
+    vmaxs = [np.max(([x.max() for x in sigmaerr])),
+             np.max(([x.max() for x in sigmaerr])),
+             np.max(([x.max() for x in sigmaerr])),
              100]
 
     # Initiate colorbars
     ax = fig.add_subplot(gs[0, 0])
     ax.set_axis_off()
-    im1 = ax.pcolormesh(np.zeros_like(images[0]), vmax=vmaxs[0], vmin=vmins[0], cmap=cmc.managua_r, rasterized=True)
+    im1 = ax.pcolormesh(np.zeros_like(images[0]), vmax=vmaxs[0],
+                        vmin=vmins[0], cmap=cmc.managua_r,
+                        rasterized=True)
     cbarax1 = fig.add_subplot(gs[:3, -1])
     cbarax1.set_yticks([])
     cbarax1.set_xticks([])
@@ -220,7 +274,9 @@ def plot_errors(images, wavs, mimical_prior, image_models, best_sample, prior_ha
     tick_locator = ticker.MaxNLocator(nbins=5)
     cbar1.locator = tick_locator
     cbar1.update_ticks()
-    im2 = ax.pcolormesh(np.zeros_like(images[0]), vmax=vmaxs[-1], vmin=vmins[-1], cmap=cmc.managua_r, rasterized=True)
+    im2 = ax.pcolormesh(np.zeros_like(images[0]), vmax=vmaxs[-1],
+                        vmin=vmins[-1], cmap=cmc.managua_r,
+                        rasterized=True)
     cbarax2 = fig.add_subplot(gs[3, -1])
     cbarax2.set_yticks([])
     cbarax2.set_xticks([])
@@ -229,7 +285,7 @@ def plot_errors(images, wavs, mimical_prior, image_models, best_sample, prior_ha
     cbar2.locator = tick_locator
     cbar2.update_ticks()
 
-    # Loop over filters and plot
+    # Loop over filters and plot
     for i in range(len(wavs)):
 
         plotims = [rmserr[i], poissonerr[i], sigmaerr[i], ratio[i]]
@@ -237,25 +293,37 @@ def plot_errors(images, wavs, mimical_prior, image_models, best_sample, prior_ha
         for j in range(4):
 
             ax = fig.add_subplot(gs[j, i])
-            im = ax.pcolormesh(plotims[j]*segmaps[i], vmax=vmaxs[j], vmin=vmins[j], cmap=cmc.managua_r, rasterized=True)
+            im = ax.pcolormesh(plotims[j]*segmaps[i], vmax=vmaxs[j],
+                               vmin=vmins[j], cmap=cmc.managua_r,
+                               rasterized=True)
             ax.set_yticks([])
             ax.set_xticks([])
             ax.set_axis_off()
 
-            if j==0:
-                ax.text(0.95, 0.95, filter_names[i].upper(), fontsize=fs, transform=ax.transAxes, ha='right', va='top', color='white')
+            if j == 0:
+                ax.text(0.95, 0.95, filter_names[i].upper(), fontsize=fs,
+                        transform=ax.transAxes, ha='right', va='top',
+                        color='white')
 
-            if i==0:
-                if j==0:
-                    ax.text(0.05, 0.05, 'RMS', fontsize=fs, transform=ax.transAxes, ha='left', va='bottom', color='white')
-                if j==1:
-                    ax.text(0.05, 0.05, 'Poisson', fontsize=fs, transform=ax.transAxes, ha='left', va='bottom', color='white')
+            if i == 0:
+                if j == 0:
+                    ax.text(0.05, 0.05, 'RMS', fontsize=fs,
+                            transform=ax.transAxes, ha='left', va='bottom',
+                            color='white')
+                if j == 1:
+                    ax.text(0.05, 0.05, 'Poisson', fontsize=fs,
+                            transform=ax.transAxes, ha='left', va='bottom',
+                            color='white')
 
-                if j==2:
-                    ax.text(0.05, 0.05, 'Total Sigma', fontsize=fs, transform=ax.transAxes, ha='left', va='bottom', color='white')
+                if j == 2:
+                    ax.text(0.05, 0.05, 'Total Sigma', fontsize=fs,
+                            transform=ax.transAxes, ha='left', va='bottom',
+                            color='white')
 
-                if j==3:
-                    ax.text(0.05, 0.05, '%Poisson', fontsize=fs, transform=ax.transAxes, ha='left', va='bottom', color='white')
+                if j == 3:
+                    ax.text(0.05, 0.05, '%Poisson', fontsize=fs,
+                            transform=ax.transAxes, ha='left', va='bottom',
+                            color='white')
 
     plt.subplots_adjust(hspace=0.02, wspace=0.02)
-    fig.set_size_inches(len(images),4, forward=True)
+    fig.set_size_inches(len(images), 4, forward=True)

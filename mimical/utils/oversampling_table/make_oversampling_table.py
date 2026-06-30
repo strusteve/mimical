@@ -11,79 +11,108 @@ device = 'mps'
 
 install_dir = os.path.dirname(os.path.realpath(__file__))
 
+
 def make_oversampling_table():
+    """ Determine the minimum oversampling necessary for pixel fractional
+    errors less than 0.01. """
+
     # Grid in 'r_eff' and 'n' parameter space
     n_array = torch.linspace(0.1, 10, 20)
     np.savetxt(install_dir + '/n_values.txt', n_array, fmt='%.1f')
-    r_eff_array = torch.linspace(0.1, 20, 20)
-    np.savetxt(install_dir + '/r_eff_values.txt', r_eff_array, fmt='%.1f')
+    r_arr = torch.linspace(0.1, 20, 20)
+    np.savetxt(install_dir + '/r_eff_values.txt', r_arr, fmt='%.1f')
 
     # Table to append oversampling factors to
-    tabledat = np.zeros((len(r_eff_array), len(n_array), 3))
+    tabledat = np.zeros((len(r_arr), len(n_array), 3))
 
     # Loop over 'r_eff' and 'n' parameter space
     print('One-time generation of oversampling table...')
-    for i in tqdm(range(len(r_eff_array))):
+    for i in tqdm(range(len(r_arr))):
         for j in range(len(n_array)):
-            
+
             # Make perfect reference image
-            reference_model = ImageModel(torch.arange(101, device=device), torch.arange(101, device=device), [Sersic()], None, 0., oversample=[10000, 300, 100], oversample_radii=[1, max(2, r_eff_array[i]), max(3, 3*r_eff_array[i])])
-            reference_model.update_parameters(torch.tensor([1000, r_eff_array[i], n_array[j], 50, 50, 0, 0]).to(torch.float32).to(device=device).unsqueeze(0), 0)
+            reference_model = ImageModel(torch.arange(101, device=device),
+                                         torch.arange(101, device=device),
+                                         [Sersic()], None, 0.,
+                                         oversample=[10000, 300, 100],
+                                         oversample_radii=[1,
+                                                           max(2, r_arr[i]),
+                                                           max(3, 3*r_arr[i])])
+            refpars = torch.tensor([1000, r_arr[i], n_array[j],
+                                    50, 50, 0, 0])
+            refpars = refpars.to(torch.float32).to(device=device
+                                                   ).unsqueeze(0)
+            reference_model.update_parameters(refpars, 0)
             reference_image = reference_model.render().cpu()
-    
 
             # Initiate starting factor and radii values
-            osam = [1,1,1]
-            orad = [1, max(2, r_eff_array[i]), max(3, 3*r_eff_array[i])]
+            osam = [1, 1, 1]
+            orad = [1, max(2, r_arr[i]), max(3, 3*r_arr[i])]
 
-            # Loop over radii 
+            # Loop over radii
             for k in range(3):
-                
-                # While the maximum residual is greater than one 1000th the maximum reference image value.
+
+                # While the maximum residual is greater than one 1000th the
+                # maximum reference image value.
                 while True:
 
-    
                     # Make current model
-                    model = ImageModel(torch.arange(101, device=device), torch.arange(101, device=device), [Sersic()], None, 0., oversample=osam, oversample_radii=orad)
-                    model.update_parameters(torch.tensor([1000, r_eff_array[i], n_array[j], 50, 50, 0, 0]).to(torch.float32).to(device=device).unsqueeze(0), 0)
+                    model = ImageModel(torch.arange(101, device=device),
+                                       torch.arange(101, device=device),
+                                       [Sersic()], None, 0.,
+                                       oversample=osam,
+                                       oversample_radii=orad)
+                    newpars = torch.tensor([1000, r_arr[i], n_array[j],
+                                            50, 50, 0, 0])
+                    newpars = newpars.to(torch.float32).to(device=device
+                                                           ).unsqueeze(0)
+                    model.update_parameters(newpars, 0)
                     image = model.render().cpu()
 
                     # Calculate residual ratio w.r.t reference model
-                    residual = torch.abs(reference_image - image) / torch.abs(reference_image)
+                    residual = (torch.abs(reference_image - image) /
+                                torch.abs(reference_image))
                     # Fix div by 0
                     residual[~torch.isfinite(residual)] = 0
 
                     # Create mask for pixels within current radii
-                    base_xgrid, base_ygrid = torch.meshgrid(torch.arange(101), torch.arange(101), indexing='xy')
+                    base_xgrid, base_ygrid = torch.meshgrid(torch.arange(101),
+                                                            torch.arange(101),
+                                                            indexing='xy')
                     centred_base_xgrid = base_xgrid - 50
                     centred_base_ygrid = base_ygrid - 50
                     # If first radii, include centre
                     if k == 0:
-                        curr_mask = (centred_base_xgrid**2 + centred_base_ygrid**2 <= orad[k]**2)
+                        curr_mask = (centred_base_xgrid**2 +
+                                     centred_base_ygrid**2 <= orad[k]**2)
                     # Else, mask in annuli
                     else:
-                        curr_mask = (centred_base_xgrid**2 + centred_base_ygrid**2 <= orad[k]**2) & (centred_base_xgrid**2 + centred_base_ygrid**2 > orad[k-1]**2)
+                        curr_mask = ((centred_base_xgrid**2 +
+                                      centred_base_ygrid**2 <= orad[k]**2) &
+                                     (centred_base_xgrid**2 +
+                                      centred_base_ygrid**2 > orad[k-1]**2))
 
                     # If no pixels in current radii, skip
-                    if torch.sum(curr_mask)==0:
+                    if torch.sum(curr_mask) == 0:
                         break
-                    
+
                     # If criterion reached or maxed out, break
-                    if (torch.max(residual[0][curr_mask]) < 0.01) | (osam[k]==1000):
+                    cond = ((torch.max(residual[0][curr_mask]) < 0.01) |
+                            (osam[k] == 1000))
+                    if cond:
                         break
 
                     # If not, continue
                     else:
-                        osam[k]+=1
+                        osam[k] += 1
                         continue
-            
-            
+
             # Save table
-            tabledat[i,j] = osam
+            tabledat[i, j] = osam
 
-            np.savetxt(install_dir + '/table1_values.txt', tabledat[:,:,0], fmt='%.0f')
-            np.savetxt(install_dir + '/table2_values.txt', tabledat[:,:,1], fmt='%.0f')
-            np.savetxt(install_dir + '/table3_values.txt', tabledat[:,:,2], fmt='%.0f')
-
-
-
+            np.savetxt(install_dir + '/table1_values.txt',
+                       tabledat[:, :, 0], fmt='%.0f')
+            np.savetxt(install_dir + '/table2_values.txt',
+                       tabledat[:, :, 1], fmt='%.0f')
+            np.savetxt(install_dir + '/table3_values.txt',
+                       tabledat[:, :, 2], fmt='%.0f')
