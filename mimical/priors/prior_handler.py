@@ -636,7 +636,6 @@ class priorHandler(object):
         if type == 'sampler':
             samples_sampler = np.apply_along_axis(self.sampler_prior, 1,
                                                   unit_cube)
-            print(samples_sampler)
             return samples_sampler, self.keys
 
         elif type == 'mimical':
