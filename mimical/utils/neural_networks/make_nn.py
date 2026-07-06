@@ -48,7 +48,7 @@ def make_nn(MLP, device="cpu"):
 
     print('Training square intersection model...')
     # data
-    X, y = generate_dataset(1_000)
+    X, y = generate_dataset(1_000_000)
     # Shuffle indices
     perm = np.random.permutation(len(X))
 
