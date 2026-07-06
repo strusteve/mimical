@@ -300,6 +300,4 @@ class Rotator(object):
         fluxcontribs = values * weights
         fluxes = torch.sum(fluxcontribs, dim=(-2, -1))
 
-        print(fluxes.device)
-
         return fluxes

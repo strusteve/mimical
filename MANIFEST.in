@@ -6,4 +6,5 @@ include mimical/utils/oversampling_table/n_values.txt
 include mimical/utils/oversampling_table/table1_values.txt
 include mimical/utils/oversampling_table/table2_values.txt
 include mimical/utils/oversampling_table/table3_values.txt
+include mimical/utils/neural_networks/square_intersection_nn.pth
 include LICENSE.txt
