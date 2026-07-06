@@ -10,6 +10,7 @@ netdir = (install_dir + "/utils/neural_networks").replace("/models", "")
 
 
 class Rotator(object):
+    """ General image rotation class. """
 
     def __init__(self, device="cpu"):
 
@@ -17,14 +18,16 @@ class Rotator(object):
         if not os.path.isfile(netdir + "/square_intersection_nn.pth"):
             model = make_nn(model)
         else:
-            model.load_state_dict(torch.load(netdir + "/square_intersection_nn.pth", map_location=device))
+            model.load_state_dict(torch.load(netdir +
+                                             "/square_intersection_nn.pth",
+                                             map_location=device))
         self.square_predictor = SquareIntersectionPredictor(model, device)
 
     def loop(self, images, angles):
         """
-        Basic image-cube rotation function, not vectorised but is generally faster
-        for single image fits and/or without acceleration. Loops over PyTorch
-        torchvision module (similar to scipy.ndimage.rotate).
+        Basic image-cube rotation function, not vectorised but is generally
+        faster for single image fits and/or without acceleration. Loops over
+        PyTorch torchvision module (similar to scipy.ndimage.rotate).
         """
 
         rotated_images = images.clone().detach()
@@ -41,17 +44,17 @@ class Rotator(object):
 
     def mario(self, images, angles, base_x=None, base_y=None, utilnum=None):
         """
-        Fully vectorised image-cube rotation function inspired by the rotation of
-        sprites in old 8-bit games. Uses three rounded shear matrices to imitate
-        rotation. Conserves pixel values but is unstable for coarse and/or unsmooth
-        PSFs.
+        Fully vectorised image-cube rotation function inspired by the rotation
+        of sprites in old 8-bit games. Uses three rounded shear matrices to
+        imitate rotation. Conserves pixel values but is unstable for coarse
+        and/or unsmooth PSFs.
         """
 
         if (base_x is None) & (base_y is None):
             base_x, base_y = torch.meshgrid(torch.arange(images[0].shape[1],
-                                                        device=images.device),
+                                                         device=images.device),
                                             torch.arange(images[0].shape[0],
-                                                        device=images.device),
+                                                         device=images.device),
                                             indexing='xy')
         elif (base_x is not None) & (base_y is None):
             raise Exception("Both 'base_x' and 'base_y' must "
@@ -79,11 +82,14 @@ class Rotator(object):
 
         # Perform rotation by three shear operations, rounding the shear value
         coords_all[:, 0] = coords_all[:, 0] + torch.round((alpha *
-                                                        coords_all[:, 1].T)).T
+                                                           coords_all[:, 1].T)
+                                                          ).T
         coords_all[:, 1] = coords_all[:, 1] + torch.round((beta *
-                                                        coords_all[:, 0].T)).T
+                                                           coords_all[:, 0].T)
+                                                          ).T
         coords_all[:, 0] = coords_all[:, 0] + torch.round((alpha *
-                                                        coords_all[:, 1].T)).T
+                                                           coords_all[:, 1].T)
+                                                          ).T
 
         # Centre and integer coords
         coords_all[:, 0] += (images[0].shape[1]-1)/2
@@ -110,20 +116,20 @@ class Rotator(object):
 
         return fluxes
 
-    def nearest_neighbour(self, images, angles, base_x=None, base_y=None,
-                                utilnum=None):
+    def nearest_neighbour(self, images, angles, base_x=None,
+                          base_y=None, utilnum=None):
         """
         Fully vectorised image-cube rotation function that rotates via a matrix
-        then performs grid sampling using the nearst pixel value. Generally faster
-        than 'loop-rotation' for multi-band accelerated fits, but not as accurate
-        and can have duplicate pixel values.
+        then performs grid sampling using the nearst pixel value. Generally
+        faster than 'loop-rotation' for multi-band accelerated fits, but not
+        as accurate and can have duplicate pixel values.
         """
 
         if (base_x is None) & (base_y is None):
             base_x, base_y = torch.meshgrid(torch.arange(images[0].shape[1],
-                                                        device=images.device),
+                                                         device=images.device),
                                             torch.arange(images[0].shape[0],
-                                                        device=images.device),
+                                                         device=images.device),
                                             indexing='xy')
         elif (base_x is not None) & (base_y is None):
             raise Exception("Both 'base_x' and 'base_y' must "
@@ -144,14 +150,14 @@ class Rotator(object):
         rotM = torch.stack([torch.stack([torch.cos(theta), -torch.sin(theta)]),
                             torch.stack([torch.sin(theta), torch.cos(theta)])])
         rotM = torch.flip(rotM,
-                        dims=(1, 0)).swapaxes(0, 2).reshape(len(theta), 2, 2)
+                          dims=(1, 0)).swapaxes(0, 2).reshape(len(theta), 2, 2)
         origin_coords = (rotM @ coords_all)
         origin_coords[:, 0] += (images[0].shape[1]-1)/2
         origin_coords[:, 1] += (images[0].shape[0]-1)/2
         origin_coords = origin_coords.reshape(origin_coords.shape[0],
-                                            origin_coords.shape[1],
-                                            images.shape[1],
-                                            images.shape[2])
+                                              origin_coords.shape[1],
+                                              images.shape[1],
+                                              images.shape[2])
 
         # Snap rotated output coords to nearest input pixel
         coords_all = torch.round(origin_coords).to(torch.int)
@@ -177,23 +183,25 @@ class Rotator(object):
 
         return fluxes
 
-    def intersection(self, images, angles, base_x=None, base_y=None, utilnum=None):
+    def intersection(self, images, angles, base_x=None,
+                     base_y=None, utilnum=None):
         """
         Fully vectorised image-cube rotation function that rotates via a matrix
-        then performs grid sampling using sub-functions to find the summing weights
-        (overlap areas) of the 9 origin pixels describing the rotated pixels local
-        region. Ideally this is done using the intersection polygon of rotated
-        squares, however until I figure out how to do this in a fully vectorised
-        manner over an image cube, the current method uses the intersection area of
-        identical circles of unity area, which performs simlarly to interpolation.
-        Generally faster than 'loop-rotation' for multi-band accelerated fits.
+        then performs grid sampling using sub-functions to find the summing
+        weights (overlap areas) of the 9 origin pixels describing the rotated
+        pixels local region. Ideally this is done using the intersection
+        polygon of rotated squares, however until I figure out how to do this
+        in a fully vectorised manner over an image cube, the current method
+        uses the intersection area of identical circles of unity area, which
+        performs simlarly to interpolation. Generally faster than
+        'loop-rotation' for multi-band accelerated fits.
         """
 
         if (base_x is None) & (base_y is None):
             base_x, base_y = torch.meshgrid(torch.arange(images[0].shape[1],
-                                                        device=images.device),
+                                                         device=images.device),
                                             torch.arange(images[0].shape[0],
-                                                        device=images.device),
+                                                         device=images.device),
                                             indexing='xy')
         elif (base_x is not None) & (base_y is None):
             raise Exception("Both 'base_x' and 'base_y' must "
@@ -214,39 +222,43 @@ class Rotator(object):
         rotM = torch.stack([torch.stack([torch.cos(theta), -torch.sin(theta)]),
                             torch.stack([torch.sin(theta), torch.cos(theta)])])
         rotM = torch.flip(rotM,
-                        dims=(1, 0)).swapaxes(0, 2).reshape(len(theta), 2, 2)
+                          dims=(1, 0)).swapaxes(0, 2).reshape(len(theta), 2, 2)
         origin_coords = (rotM @ coords_all)
         origin_coords[:, 0] += (images[0].shape[1]-1)/2
         origin_coords[:, 1] += (images[0].shape[0]-1)/2
         origin_coords = origin_coords.reshape(origin_coords.shape[0],
-                                            origin_coords.shape[1],
-                                            images.shape[1],
-                                            images.shape[2])
+                                              origin_coords.shape[1],
+                                              images.shape[1],
+                                              images.shape[2])
 
         # Snap rotated output coords to nearest input pixel
         origin_coords_rounded = torch.round(origin_coords).to(torch.int)
 
         # Expand about nearest input pixel
         expanded_origin = torch.zeros((*origin_coords_rounded.shape, 3, 3),
-                                    device=images.device)
+                                      device=images.device)
         expanded_origin = (expanded_origin.permute(5, 4, 3, 2, 1, 0) +
-                        origin_coords_rounded.permute(3, 2, 1, 0))
+                           origin_coords_rounded.permute(3, 2, 1, 0))
         expanded_origin = expanded_origin.permute(5, 4, 3, 2, 1, 0)
-        expanded_origin[:, 0, :, :, :, :] += torch.tensor([[-1, 0, 1],
-                                                        [-1, 0, 1],
-                                                        [-1, 0, 1]],
-                                                        device=images.device)
-        expanded_origin[:, 1, :, :, :, :] += torch.tensor([[1, 1, 1],
-                                                        [0, 0, 0],
-                                                        [-1, -1, -1]],
-                                                        device=images.device)
+        ph1 = torch.tensor([[-1, 0, 1],
+                            [-1, 0, 1],
+                            [-1, 0, 1]],
+                           device=images.device)
+        expanded_origin[:, 0, :, :, :, :] += ph1
+        ph2 = torch.tensor([[1, 1, 1],
+                            [0, 0, 0],
+                            [-1, -1, -1]],
+                           device=images.device)
+        expanded_origin[:, 1, :, :, :, :] += ph2
 
         # Reorder expanded neighbour pixel grid for indexing
         dim0 = ((expanded_origin[:, 0]*0).permute(4, 3, 2, 1, 0) +
                 utilnum).permute(4, 3, 2, 1, 0).flatten()
         dim1 = expanded_origin[:, 1].flatten()
         dim2 = expanded_origin[:, 0].flatten()
-        expanded_origin_dimcoords = torch.stack((dim0, dim1, dim2)).to(torch.int)
+        expanded_origin_dimcoords = torch.stack((dim0,
+                                                 dim1,
+                                                 dim2)).to(torch.int)
 
         # Find the flux values of each origin pixel in expanded grid
         pad = int(1.5 * (0.5**0.5-0.5) * max(*images.shape[1:]))
@@ -260,40 +272,46 @@ class Rotator(object):
                 (expanded_origin_dimcoords[2] > images[0].shape[1]-1))
         values[mask] = 0
 
-        def weight_neighbours_circleintersection(origin_coords, expanded_origin):
+        def weight_neighbours_circleintersection(origin_coords,
+                                                 expanded_origin):
             """ Weight pixels in the local region by circular overlap. """
             # Circle of area 1 centred on each square
             radius = 1 / (3.14159265358979323846**0.5)
             separation_xy = (expanded_origin.permute(5, 4, 3, 2, 1, 0) -
-                            origin_coords.permute(3, 2, 1, 0))
+                             origin_coords.permute(3, 2, 1, 0))
             separation_xy = separation_xy.permute(5, 4, 3, 2, 1, 0)
             separation = torch.sum(separation_xy**2, dim=1)
             intersecting_area = (2 * (radius**2) *
-                                torch.arccos(separation / (2*radius))) - \
+                                 torch.arccos(separation / (2*radius))) - \
                                 (0.5 * separation *
-                                torch.sqrt((4*(radius**2)) - (separation**2)))
+                                 torch.sqrt((4*(radius**2)) - (separation**2)))
             norm = torch.nansum(intersecting_area, dim=(3, 4)).permute(2, 1, 0)
             intersecting_area = (intersecting_area.permute(4, 3, 2, 1, 0) /
-                                norm).permute(4, 3, 2, 1, 0)
+                                 norm).permute(4, 3, 2, 1, 0)
             intersecting_area[separation >= (2*radius)] = 0
             return intersecting_area
-        
-        def weight_neighbours_squareintersection(origin_coords, expanded_origin):
-            """ Weight pixels in the local region by square overlap. 
+
+        def weight_neighbours_squareintersection(origin_coords,
+                                                 expanded_origin):
+            """ Weight pixels in the local region by square overlap.
                 As there is no simple analytical formula for this, a
                 neural network is used to determine the overlap area. """
             separation_xy = (expanded_origin.permute(5, 4, 3, 2, 1, 0) -
-                            origin_coords.permute(3, 2, 1, 0))
+                             origin_coords.permute(3, 2, 1, 0))
             separation_xy = separation_xy.permute(5, 4, 3, 2, 1, 0)
-            dxs = separation_xy[:,0,:,:,:,:]
-            dys = separation_xy[:,1,:,:,:,:]
-            thetas = ((dxs.clone().detach() * 0).permute(4,3,2,1,0) + theta).permute(4,3,2,1,0)
-            intersecting_area = self.square_predictor.predict(dxs.flatten(), dys.flatten(), thetas.flatten())
+            dxs = separation_xy[:, 0, :, :, :, :]
+            dys = separation_xy[:, 1, :, :, :, :]
+            thetas = ((dxs.clone().detach() * 0).permute(4, 3, 2, 1, 0)
+                      + theta).permute(4, 3, 2, 1, 0)
+            intersecting_area = self.square_predictor.predict(dxs.flatten(),
+                                                              dys.flatten(),
+                                                              thetas.flatten())
             intersecting_area = intersecting_area.reshape(*dxs.shape)
             return intersecting_area
-        
+
         # Get summing weights of all neighbour input pixels
-        weights = weight_neighbours_squareintersection(origin_coords, expanded_origin)
+        weights = weight_neighbours_squareintersection(origin_coords,
+                                                       expanded_origin)
 
         # Sum over neighbour fluxes to find the total flux
         values = values.reshape(*weights.shape)

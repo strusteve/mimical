@@ -415,18 +415,28 @@ class fit(object):
         indices = np.random.choice(np.arange(self.points.shape[0]),
                                    size=n_post, p=np.exp(self.log_w))
         self.samples = self.points[indices]
+        chisq, numd = self.calc_chisq(self.points[np.argmax(self.log_l)])
 
-        # Define empty samples array and determine per-filter samples
+        # Save sampler values
+        quan = np.percentile(self.samples, q=(16, 50, 84), axis=0)
+        dic = {"id": self.id}
+        for i in range(len(self.sampler_prior_keys)):
+            key = list(self.sampler_prior_keys)[i]
+            dic[key + "_16"] = [quan[0, i]]
+            dic[key + "_50"] = [quan[1, i]]
+            dic[key + "_84"] = [quan[2, i]]
+        dic['chisq'] = chisq
+        dic['numd'] = numd
+        dic['red_chisq'] = chisq / (numd-self.phandler.ndim)
+        df1 = pd.DataFrame(dic)
+
+        # Save per filter values
         samp_filt = np.apply_along_axis(lambda p:
                                         self.phandler.revert(p).flatten(), 1,
                                         self.samples)
         samp_filt = samp_filt.reshape(self.samples.shape[0], len(self.wavs),
                                       np.sum(self.phandler.nsources)+3)
-
-        # Calculate percentiles
         quan = np.percentile(samp_filt, q=(16, 50, 84), axis=0)
-
-        # Create dataframe table
         dic = {"id": self.id}
         for j in range(len(self.wavs)):
             for i in range(len(self.mimical_keys)):
@@ -434,30 +444,41 @@ class fit(object):
                 dic[key + "_" + self.filter_names[j] + "_16"] = [quan[0, j, i]]
                 dic[key + "_" + self.filter_names[j] + "_50"] = [quan[1, j, i]]
                 dic[key + "_" + self.filter_names[j] + "_84"] = [quan[2, j, i]]
-
-        chisq, numd = self.calc_chisq(self.points[np.argmax(self.log_l)])
+        dic['chisq'] = chisq
+        dic['numd'] = numd
         dic['red_chisq'] = chisq / (numd-self.phandler.ndim)
-        df = pd.DataFrame(dic)
+        df2 = pd.DataFrame(dic)
 
         # If not part of a catalogue fit, save individual
         if self.runtag == '':
-            df.to_csv(dir_path+f'/mimical_output/cats/{self.id}.csv',
-                      index=False)
+            df1.to_csv(dir_path+f'/mimical_output/cats/{self.id}_'
+                       'sampcat.csv', index=False)
+            df2.to_csv(dir_path+f'/mimical_output/cats{self.runtag}_'
+                       'filtcat.csv', index=False)
 
         # If part of a catalogue fit, append to it.
         else:
             if not os.path.isfile(dir_path + f'/mimical_output/' +
-                                  f'cats{self.runtag}.csv'):
-                df.to_csv(dir_path+f'/mimical_output/cats{self.runtag}.csv',
-                          index=False)
+                                  f'cats{self.runtag}_sampcat.csv'):
+                df1.to_csv(dir_path+f'/mimical_output/cats{self.runtag}'
+                           '_sampcat.csv', index=False)
+                df2.to_csv(dir_path+f'/mimical_output/cats{self.runtag}'
+                           '_filtcat.csv', index=False)
             else:
-                ridden = pd.read_csv(dir_path+f'/mimical_output/' +
-                                     f'cats/{self.runtag}.csv')
-                ridden.index = ridden['id'].values.astype('str')
-                if self.id not in ridden.index.values:
-                    ridden.loc[self.id] = df.values[0]
-                    ridden.to_csv(dir_path+f'/mimical_output/' +
-                                  f'cats/{self.runtag}.csv', index=False)
+                ridden1 = pd.read_csv(dir_path+f'/mimical_output/' +
+                                      f'cats/{self.runtag}_sampcat.csv')
+                ridden2 = pd.read_csv(dir_path+f'/mimical_output/' +
+                                      f'cats/{self.runtag}_filtcat.csv')
+                ridden1.index = ridden1['id'].values.astype('str')
+                if self.id not in ridden1.index.values:
+                    ridden1.loc[self.id] = df1.values[0]
+                    ridden2.loc[self.id] = df2.values[0]
+                    ridden1.to_csv(dir_path+f'/mimical_output/' +
+                                   f'cats/{self.runtag}_sampcat.csv',
+                                   index=False)
+                    ridden2.to_csv(dir_path+f'/mimical_output/' +
+                                   f'cats/{self.runtag}_filtcat.csv',
+                                   index=False)
                 else:
                     print('Object already written to catalogue.')
 

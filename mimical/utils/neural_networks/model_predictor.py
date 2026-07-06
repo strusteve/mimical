@@ -42,8 +42,3 @@ class SquareIntersectionPredictor:
     def predict(self, dxs, dys, theta2):
         X = self.featurize(dxs, dys, theta2)
         return self.model(X).clamp(0, 1).reshape(-1)
-
-
-
-
-

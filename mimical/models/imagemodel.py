@@ -1,3 +1,5 @@
+from .rotationmodels import Rotator
+
 import torch
 import warnings
 import matplotlib.pyplot as plt
@@ -7,7 +9,6 @@ warnings.filterwarnings(
     category=UserWarning,
     message="An output with one or more elements was resized")
 
-from .rotationmodels import Rotator
 
 class ImageModel(object):
     """ Base class for evaluating a parametric sub-model on a pixel grid.

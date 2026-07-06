@@ -13,8 +13,10 @@ device = (torch.accelerator.current_accelerator()
           if torch.accelerator.is_available()
           else torch.device("cpu"))
 
+
 def unit_square():
     return Polygon([(-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5)])
+
 
 def transformed_square(center, theta):
     poly = unit_square()
@@ -22,15 +24,17 @@ def transformed_square(center, theta):
     poly = translate(poly, xoff=center[0], yoff=center[1])
     return poly
 
+
 def intersection_area(dx, dy, theta2):
     A = transformed_square((0, 0), 0)
     B = transformed_square((dx, dy), theta2)
     return A.intersection(B).area
 
+
 def generate_dataset(n):
     dxs = np.random.normal(0, 0.5, n)
     dys = np.random.normal(0, 0.5, n)
-    t2  = np.random.uniform(0, 2*np.pi, n)
+    t2 = np.random.uniform(0, 2*np.pi, n)
 
     r = np.sqrt(dxs*dxs + dys*dys)
 
@@ -40,9 +44,12 @@ def generate_dataset(n):
                   np.sin(t2),
                   np.cos(t2)], axis=1)
 
-    y = np.array([intersection_area(dx, dy, th2) for dx, dy, th2 in zip(dxs, dys, t2)], dtype=np.float32).reshape(-1, 1)
+    y = np.array([intersection_area(dx, dy, th2)
+                  for dx, dy, th2
+                  in zip(dxs, dys, t2)], dtype=np.float32).reshape(-1, 1)
 
     return X, y
+
 
 def make_nn(MLP, device="cpu"):
 
@@ -101,7 +108,8 @@ def make_nn(MLP, device="cpu"):
                 val_loss += loss.item() * xb.size(0)
         val_loss /= len(val_loader.dataset)
 
-        print(f"Epoch {epoch+1:2d}: train={train_loss:.6f}  val={val_loss:.6f}")
+        print(f"Epoch {epoch+1:2d}: train={train_loss:.6f}  "
+              "val={val_loss:.6f}")
 
     torch.save(model.state_dict(), install_dir + "/square_intersection_nn.pth")
 
