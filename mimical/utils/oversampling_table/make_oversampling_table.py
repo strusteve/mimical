@@ -4,15 +4,13 @@ import torch
 import numpy as np
 import os
 
-from ...models import ImageModel
-from ...models import Sersic
 
 device = 'mps'
 
 install_dir = os.path.dirname(os.path.realpath(__file__))
 
 
-def make_oversampling_table():
+def make_oversampling_table(ImageModel, Sersic):
     """ Determine the minimum oversampling necessary for pixel fractional
     errors less than 0.01. """
 

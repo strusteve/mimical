@@ -1,6 +1,3 @@
-from .rotationmodels import loop_rotation, mario_rotation, \
-    intersection_rotation, nearest_neighbour_rotation
-
 import torch
 import warnings
 import matplotlib.pyplot as plt
@@ -10,6 +7,7 @@ warnings.filterwarnings(
     category=UserWarning,
     message="An output with one or more elements was resized")
 
+from .rotationmodels import Rotator
 
 class ImageModel(object):
     """ Base class for evaluating a parametric sub-model on a pixel grid.
@@ -71,6 +69,8 @@ class ImageModel(object):
                                                             indexing='xy')
             self.utilnum = torch.arange(len(psf_pa), device=x.device)
 
+        self.rot = Rotator(device=self.x.device)
+
     def update_parameters(self, submodel_params, psf_pa):
         """ Update the submodel parameters and psf position angles. """
 
@@ -94,7 +94,7 @@ class ImageModel(object):
         self.oversample_boxlength = oversample_boxlength
         self.oversample_radii = oversample_radii
 
-    def render(self, rotation_function=intersection_rotation):
+    def render(self):
         """ Render the ImageModel onto its pixel grid. """
 
         # Evaluate submodel over the pixel grid
@@ -122,10 +122,11 @@ class ImageModel(object):
             if (self.psf_pa == 0).all():
                 psf_rot = self.psf
             else:
-                psf_rot = rotation_function(self.psf, self.psf_pa,
-                                            base_x=self.psf_xgrid,
-                                            base_y=self.psf_ygrid,
-                                            utilnum=self.utilnum)
+                psf_rot = self.rot.intersection(self.psf, self.psf_pa,
+                                                base_x=self.psf_xgrid,
+                                                base_y=self.psf_ygrid,
+                                                utilnum=self.utilnum)
+                psf_rot = (psf_rot.T / torch.sum(psf_rot, (1, 2))).T
 
             # Convolve submodel image with PSF image
             final_image = self.PSFconvolve(model_image, psf_rot)
