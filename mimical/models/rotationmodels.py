@@ -66,11 +66,11 @@ class Rotator(object):
         if utilnum is None:
             utilnum = torch.arange(len(angles), device=images.device)
 
-        x = base_x-((images[0].shape[1]-1)/2)
-        y = base_y-((images[0].shape[0]-1)/2)
+        base_x = base_x-((images[0].shape[1]-1)/2)
+        base_y = base_y-((images[0].shape[0]-1)/2)
 
-        coords = torch.stack([x.flatten(), y.flatten()])
-        coords_all = torch.stack([coords]*len(angles))
+        coords = torch.stack([base_x.flatten(), base_y.flatten()])
+        coords = torch.stack([coords]*len(angles))
 
         # Find which coords these came from in input image
         anglemask = ((angles < -90) | (angles > 90))[0]
@@ -81,38 +81,38 @@ class Rotator(object):
         beta = torch.sin(theta)
 
         # Perform rotation by three shear operations, rounding the shear value
-        coords_all[:, 0] = coords_all[:, 0] + torch.round((alpha *
-                                                           coords_all[:, 1].T)
+        coords[:, 0] = coords[:, 0] + torch.round((alpha *
+                                                           coords[:, 1].T)
                                                           ).T
-        coords_all[:, 1] = coords_all[:, 1] + torch.round((beta *
-                                                           coords_all[:, 0].T)
+        coords[:, 1] = coords[:, 1] + torch.round((beta *
+                                                           coords[:, 0].T)
                                                           ).T
-        coords_all[:, 0] = coords_all[:, 0] + torch.round((alpha *
-                                                           coords_all[:, 1].T)
+        coords[:, 0] = coords[:, 0] + torch.round((alpha *
+                                                           coords[:, 1].T)
                                                           ).T
 
         # Centre and integer coords
-        coords_all[:, 0] += (images[0].shape[1]-1)/2
-        coords_all[:, 1] += (images[0].shape[0]-1)/2
-        coords_all = coords_all.to(torch.int)
+        coords[:, 0] += (images[0].shape[1]-1)/2
+        coords[:, 1] += (images[0].shape[0]-1)/2
+        coords = coords.to(torch.int)
 
         # Reshape pixel coord array for masking
-        dim0 = ((coords_all[:, 0]*0).T + utilnum).T.flatten()
-        dim1 = coords_all[:, 1].flatten()
-        dim2 = coords_all[:, 0].flatten()
+        dim0 = ((coords[:, 0]*0).T + utilnum).T.flatten()
+        dim1 = coords[:, 1].flatten()
+        dim2 = coords[:, 0].flatten()
         final_rot = torch.stack((dim0, dim1, dim2))
 
         # Get the original values of each pixel
         padded_images = torch.nn.functional.pad(images, (0, 100, 0, 100))
-        values = padded_images[*final_rot]
+        fluxes = padded_images[*final_rot]
 
         # Mask out boundaries and reshape
         mask = ((final_rot[1] < 0) |
                 (final_rot[1] > images[0].shape[0]-1) |
                 (final_rot[2] < 0) |
                 (final_rot[2] > images[0].shape[1]-1))
-        values[mask] = 0
-        fluxes = values.reshape(*images.shape)
+        fluxes[mask] = 0
+        fluxes = fluxes.reshape(*images.shape)
 
         return fluxes
 
@@ -142,44 +142,44 @@ class Rotator(object):
             utilnum = torch.arange(len(angles), device=images.device)
 
         # Rotate output coords to origin input coords
-        x = base_x-((images[0].shape[1]-1)/2)
-        y = base_y-((images[0].shape[0]-1)/2)
-        coords = torch.stack([x.flatten(), y.flatten()])
-        coords_all = torch.stack([coords]*len(angles))
+        base_x = base_x-((images[0].shape[1]-1)/2)
+        base_y = base_y-((images[0].shape[0]-1)/2)
+        coords = torch.stack([base_x.flatten(), base_y.flatten()])
+        coords = torch.stack([coords]*len(angles))
         theta = torch.deg2rad(angles)
         rotM = torch.stack([torch.stack([torch.cos(theta), -torch.sin(theta)]),
                             torch.stack([torch.sin(theta), torch.cos(theta)])])
         rotM = torch.flip(rotM,
                           dims=(1, 0)).swapaxes(0, 2).reshape(len(theta), 2, 2)
-        origin_coords = (rotM @ coords_all)
-        origin_coords[:, 0] += (images[0].shape[1]-1)/2
-        origin_coords[:, 1] += (images[0].shape[0]-1)/2
-        origin_coords = origin_coords.reshape(origin_coords.shape[0],
-                                              origin_coords.shape[1],
-                                              images.shape[1],
-                                              images.shape[2])
+        coords = (rotM @ coords)
+        coords[:, 0] += (images[0].shape[1]-1)/2
+        coords[:, 1] += (images[0].shape[0]-1)/2
+        coords = coords.reshape(coords.shape[0],
+                                coords.shape[1],
+                                images.shape[1],
+                                images.shape[2])
 
         # Snap rotated output coords to nearest input pixel
-        coords_all = torch.round(origin_coords).to(torch.int)
+        coords = torch.round(coords).to(torch.int)
 
         # Reshape pixel coord array for masking
-        dim0 = ((coords_all[:, 0]*0).permute(2, 1, 0) +
+        dim0 = ((coords[:, 0]*0).permute(2, 1, 0) +
                 utilnum).permute(2, 1, 0).flatten()
-        dim1 = coords_all[:, 1].flatten()
-        dim2 = coords_all[:, 0].flatten()
+        dim1 = coords[:, 1].flatten()
+        dim2 = coords[:, 0].flatten()
         final_rot = torch.stack((dim0, dim1, dim2))
 
         # Get the original values of each pixel
         padded_images = torch.nn.functional.pad(images, (0, 100, 0, 100))
-        values = padded_images[*final_rot]
+        fluxes = padded_images[*final_rot]
 
         # Mask out boundaries and reshape
         mask = ((final_rot[1] < 0) |
                 (final_rot[1] > images[0].shape[0]-1) |
                 (final_rot[2] < 0) |
                 (final_rot[2] > images[0].shape[1]-1))
-        values[mask] = 0
-        fluxes = values.reshape(*images.shape)
+        fluxes[mask] = 0
+        fluxes = fluxes.reshape(*images.shape)
 
         return fluxes
 
@@ -214,25 +214,25 @@ class Rotator(object):
             utilnum = torch.arange(len(angles), device=images.device)
 
         # Rotate output coords to origin input coords
-        x = base_x-((images[0].shape[1]-1)/2)
-        y = base_y-((images[0].shape[0]-1)/2)
-        coords = torch.stack([x.flatten(), y.flatten()])
-        coords_all = torch.stack([coords]*len(angles))
+        base_x = base_x-((images[0].shape[1]-1)/2)
+        base_y = base_y-((images[0].shape[0]-1)/2)
+        coords = torch.stack([base_x.flatten(), base_y.flatten()])
+        coords = torch.stack([coords]*len(angles))
         theta = torch.deg2rad(angles)
         rotM = torch.stack([torch.stack([torch.cos(theta), -torch.sin(theta)]),
                             torch.stack([torch.sin(theta), torch.cos(theta)])])
         rotM = torch.flip(rotM,
                           dims=(1, 0)).swapaxes(0, 2).reshape(len(theta), 2, 2)
-        origin_coords = (rotM @ coords_all)
-        origin_coords[:, 0] += (images[0].shape[1]-1)/2
-        origin_coords[:, 1] += (images[0].shape[0]-1)/2
-        origin_coords = origin_coords.reshape(origin_coords.shape[0],
-                                              origin_coords.shape[1],
-                                              images.shape[1],
-                                              images.shape[2])
+        coords = (rotM @ coords)
+        coords[:, 0] += (images[0].shape[1]-1)/2
+        coords[:, 1] += (images[0].shape[0]-1)/2
+        coords = coords.reshape(coords.shape[0],
+                                coords.shape[1],
+                                images.shape[1],
+                                images.shape[2])
 
         # Snap rotated output coords to nearest input pixel
-        origin_coords_rounded = torch.round(origin_coords).to(torch.int)
+        origin_coords_rounded = torch.round(coords).to(torch.int)
 
         # Expand about nearest input pixel
         expanded_origin = torch.zeros((*origin_coords_rounded.shape, 3, 3),
@@ -263,14 +263,14 @@ class Rotator(object):
         # Find the flux values of each origin pixel in expanded grid
         pad = int(1.5 * (0.5**0.5-0.5) * max(*images.shape[1:]))
         padded_images = torch.nn.functional.pad(images, (0, pad, 0, pad))
-        values = padded_images[*expanded_origin_dimcoords]
+        fluxes = padded_images[*expanded_origin_dimcoords]
 
         # Set any outside original image boundaries to be zero
         mask = ((expanded_origin_dimcoords[1] < 0) |
                 (expanded_origin_dimcoords[1] > images[0].shape[0]-1) |
                 (expanded_origin_dimcoords[2] < 0) |
                 (expanded_origin_dimcoords[2] > images[0].shape[1]-1))
-        values[mask] = 0
+        fluxes[mask] = 0
 
         def weight_neighbours_circleintersection(origin_coords,
                                                  expanded_origin):
@@ -310,12 +310,12 @@ class Rotator(object):
             return intersecting_area
 
         # Get summing weights of all neighbour input pixels
-        weights = weight_neighbours_squareintersection(origin_coords,
+        weights = weight_neighbours_squareintersection(coords,
                                                        expanded_origin)
 
         # Sum over neighbour fluxes to find the total flux
-        values = values.reshape(*weights.shape)
-        fluxcontribs = values * weights
-        fluxes = torch.sum(fluxcontribs, dim=(-2, -1))
+        fluxes = fluxes.reshape(*weights.shape)
+        fluxes = fluxes * weights
+        fluxes = torch.sum(fluxes, dim=(-2, -1))
 
         return fluxes

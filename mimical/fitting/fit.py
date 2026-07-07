@@ -259,8 +259,6 @@ class fit(object):
     def lnlike(self, param_vec):
         """ Returns the log-likelihood for a given parameter vector. """
 
-        t0 = time.time()
-
         residuals, sigma = self.get_residuals(param_vec)
 
         if isinstance(residuals, str):
@@ -269,9 +267,6 @@ class fit(object):
         norm = np.log((1/(np.sqrt(2*np.pi*(sigma**2)))))
         log_like_array = norm + ((-(residuals)**2) / (2*(sigma**2)))
         log_like = np.sum(log_like_array)
-
-        self.calls += 1
-        self.calltime += time.time()-t0
 
         return log_like
 
