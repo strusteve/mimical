@@ -184,7 +184,7 @@ class Rotator(object):
         return fluxes
 
     def intersection(self, images, angles, base_x=None,
-                     base_y=None, utilnum=None):
+                     base_y=None, utilnum=None, type='square'):
         """
         Fully vectorised image-cube rotation function that rotates via a matrix
         then performs grid sampling using sub-functions to find the summing
@@ -309,9 +309,16 @@ class Rotator(object):
             intersecting_area = intersecting_area.reshape(*dxs.shape)
             return intersecting_area
 
-        # Get summing weights of all neighbour input pixels
-        weights = weight_neighbours_squareintersection(coords,
-                                                       expanded_origin)
+        if type == 'circle':
+            # Get summing weights of all neighbour input pixels
+            weights = weight_neighbours_circleintersection(coords,
+                                                        expanded_origin)
+        elif type == 'square':
+            # Get summing weights of all neighbour input pixels
+            weights = weight_neighbours_squareintersection(coords,
+                                                        expanded_origin)
+        else:
+            raise Exception("Type must be either 'square' or 'circle'.")
 
         # Sum over neighbour fluxes to find the total flux
         fluxes = fluxes.reshape(*weights.shape)

@@ -379,7 +379,8 @@ class fit(object):
                               n_live=n_live, pool=pool,
                               n_dim=self.phandler.ndim)
             sampler.run(verbose=verbose_sampler)
-            print(f"Sampling time (minutes): {(time.time()-t0)/60}")
+            self.sampling_time = (time.time()-t0)/60
+            print(f"Sampling time (minutes): {self.sampling_time}")
             self.points, self.log_w, self.log_l = sampler.posterior()
             self.save_output()
 
@@ -423,6 +424,7 @@ class fit(object):
         dic['chisq'] = chisq
         dic['numd'] = numd
         dic['red_chisq'] = chisq / (numd-self.phandler.ndim)
+        dic['sampling_time'] = self.sampling_time
         df1 = pd.DataFrame(dic)
 
         # Save per filter values
@@ -442,6 +444,7 @@ class fit(object):
         dic['chisq'] = chisq
         dic['numd'] = numd
         dic['red_chisq'] = chisq / (numd-self.phandler.ndim)
+        dic['sampling_time'] = self.sampling_time
         df2 = pd.DataFrame(dic)
 
         # If not part of a catalogue fit, save individual
