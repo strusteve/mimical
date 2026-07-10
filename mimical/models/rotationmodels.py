@@ -82,14 +82,14 @@ class Rotator(object):
 
         # Perform rotation by three shear operations, rounding the shear value
         coords[:, 0] = coords[:, 0] + torch.round((alpha *
-                                                           coords[:, 1].T)
-                                                          ).T
+                                                   coords[:, 1].T)
+                                                  ).T
         coords[:, 1] = coords[:, 1] + torch.round((beta *
-                                                           coords[:, 0].T)
-                                                          ).T
+                                                   coords[:, 0].T)
+                                                  ).T
         coords[:, 0] = coords[:, 0] + torch.round((alpha *
-                                                           coords[:, 1].T)
-                                                          ).T
+                                                   coords[:, 1].T)
+                                                  ).T
 
         # Centre and integer coords
         coords[:, 0] += (images[0].shape[1]-1)/2
@@ -312,11 +312,11 @@ class Rotator(object):
         if type == 'circle':
             # Get summing weights of all neighbour input pixels
             weights = weight_neighbours_circleintersection(coords,
-                                                        expanded_origin)
+                                                           expanded_origin)
         elif type == 'square':
             # Get summing weights of all neighbour input pixels
             weights = weight_neighbours_squareintersection(coords,
-                                                        expanded_origin)
+                                                           expanded_origin)
         else:
             raise Exception("Type must be either 'square' or 'circle'.")
 

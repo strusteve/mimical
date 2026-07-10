@@ -8,7 +8,8 @@ fs = 6
 
 
 def plot_best(images, wavs, image_models, best_sample, prior_handler,
-              filter_names, segmaps):
+              filter_names, segmaps, oversample=None,
+              oversample_bl=None, oversample_radii=None):
     """ Plots the maximum likelihood model and resid."""
 
     # Pass segmaps through images
@@ -22,12 +23,17 @@ def plot_best(images, wavs, image_models, best_sample, prior_handler,
     param_dict = prior_handler.revert(best_sample)
     pars = param_dict[:, :np.sum(prior_handler.nsources)]
     psfarr = param_dict[:, np.sum(prior_handler.nsources)]
+    pars = torch.tensor(pars, dtype=torch.float32,
+                        device=image_models.x.device)
 
     # Generate best model
-    image_models.update_parameters(torch.tensor(pars, dtype=torch.float32,
-                                                device=image_models.x.device),
+    image_models.update_parameters(pars,
                                    torch.tensor(psfarr, dtype=torch.float32,
                                                 device=image_models.x.device))
+    if oversample is not None:
+        image_models.update_oversampling(oversample, oversample_bl,
+                                         oversample_radii)
+
     models = image_models.render().cpu().numpy()
     resid = (images-models)*segmaps
 
@@ -211,7 +217,8 @@ def plot_trends(wavs, samples, mimical_prior, prior_handler, mimical_keys):
 
 
 def plot_errors(images, wavs, mimical_prior, image_models, best_sample,
-                prior_handler, filter_names, segmaps):
+                prior_handler, filter_names, segmaps, oversample=None,
+                oversample_bl=None, oversample_radii=None):
     """ Provides a summary of the individual errors present in best model. """
 
     # Initiate plot
@@ -241,6 +248,10 @@ def plot_errors(images, wavs, mimical_prior, image_models, best_sample,
                                                 device=image_models.x.device),
                                    torch.tensor(psfarr, dtype=torch.float32,
                                                 device=image_models.x.device))
+    if oversample is not None:
+        image_models.update_oversampling(oversample, oversample_bl,
+                                         oversample_radii)
+
     models = image_models.render().cpu().numpy()
 
     # Create master lists for appending

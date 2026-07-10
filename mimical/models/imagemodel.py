@@ -8,7 +8,7 @@ warnings.filterwarnings(
     "ignore",
     category=UserWarning,
     message="An output with one or more elements was resized")
-import time
+
 
 class ImageModel(object):
     """ Base class for evaluating a parametric sub-model on a pixel grid.
@@ -39,7 +39,7 @@ class ImageModel(object):
         The factor by which to oversample the image. Integer for 'homogeneous'
         and 'window' methods, list for 'annuli' method.
 
-    oversample_boxlength : int
+    oversample_bl : int
         Length of centred square in which to oversample.
 
     oversample_radii : list of floats
@@ -47,7 +47,7 @@ class ImageModel(object):
     """
 
     def __init__(self, x, y, submodels, psf, psf_pa, oversample=None,
-                 oversample_boxlength=None, oversample_radii=None):
+                 oversample_bl=None, oversample_radii=None):
 
         self.x = x
         self.y = y
@@ -55,7 +55,7 @@ class ImageModel(object):
         self.submodels = submodels
         self.psf = psf
         self.oversample = oversample
-        self.oversample_boxlength = oversample_boxlength
+        self.oversample_bl = oversample_bl
         self.oversample_radii = oversample_radii
         self.psf_pa = psf_pa
 
@@ -87,12 +87,12 @@ class ImageModel(object):
                 self.submodels[i].update_parameters(pars)
         self.psf_pa = psf_pa
 
-    def update_oversampling(self, oversample=None, oversample_boxlength=None,
+    def update_oversampling(self, oversample=None, oversample_bl=None,
                             oversample_radii=None):
         """ Update the oversampling parameters. """
 
         self.oversample = oversample
-        self.oversample_boxlength = oversample_boxlength
+        self.oversample_bl = oversample_bl
         self.oversample_radii = oversample_radii
 
     def render(self):
@@ -101,7 +101,7 @@ class ImageModel(object):
         # Evaluate submodel over the pixel grid
         model_image = self.evaluate_over_grid(self.submodels[0],
                                               self.oversample,
-                                              self.oversample_boxlength,
+                                              self.oversample_bl,
                                               self.oversample_radii)
 
         # For multiple sources in scene
@@ -109,7 +109,7 @@ class ImageModel(object):
             for i in range(1, len(self.nsources)):
                 newsource = self.evaluate_over_grid(self.submodels[i],
                                                     self.oversample,
-                                                    self.oversample_boxlength,
+                                                    self.oversample_bl,
                                                     self.oversample_radii)
                 model_image += newsource
 
@@ -134,7 +134,7 @@ class ImageModel(object):
 
             return final_image
 
-    def evaluate_over_grid(self, model, oversample, oversample_boxlength,
+    def evaluate_over_grid(self, model, oversample, oversample_bl,
                            oversample_radii):
         """ Evaluate submodel over the pixel grid. """
 
@@ -147,21 +147,21 @@ class ImageModel(object):
 
         # Expand the pixel grid and then block-reduce
         elif (isinstance(oversample, (int, float)) &
-              (oversample_boxlength is None) &
+              (oversample_bl is None) &
               (oversample_radii is None)):
             return self.homogeneous_oversampling(model, oversample)
 
         # Expand the window pixel grid and then block-reduce
         elif (isinstance(oversample, (int, float)) &
-              isinstance(oversample_boxlength, (int, float))
+              isinstance(oversample_bl, (int, float))
               & (oversample_radii is None)):
             return self.window_oversampling(model, oversample,
-                                            oversample_boxlength)
+                                            oversample_bl)
 
         # For inhomogeneous oversampling, loop over annuli about image centre
         elif (isinstance(oversample, list) &
               isinstance(oversample_radii, list) &
-              (oversample_boxlength is None)):
+              (oversample_bl is None)):
             return self.annuli_oversampling(model, oversample,
                                             oversample_radii)
 
@@ -176,10 +176,10 @@ class ImageModel(object):
 
         # Make oversampled sub-pixel coord grid
         xgrid = torch.tile(self.base_xgrid.flatten(),
-                                         (oversample, 1)).T
+                           (oversample, 1)).T
         xgrid = (xgrid + oversample_shift)
         ygrid = torch.tile(self.base_ygrid.flatten(),
-                                         (oversample, 1)).T
+                           (oversample, 1)).T
         ygrid = (ygrid + oversample_shift)
 
         # Manually meshgrid subpixel coords
@@ -196,18 +196,19 @@ class ImageModel(object):
         return evaluation.reshape(model.params.shape[0],
                                   len(self.y),
                                   len(self.x)) / oversample**2
- 
-    def window_oversampling(self, model, oversample, oversample_boxlength):
-        """ Oversampled a centred window of length 'oversample_boxlength'. """
 
-        model_image = torch.stack([self.base_xgrid.clone().detach()]*model.params.shape[0])*0.
+    def window_oversampling(self, model, oversample, oversample_bl):
+        """ Oversampled a centred window of length 'oversample_bl'. """
+
+        model_image = torch.stack([self.base_xgrid.clone().detach()] *
+                                  model.params.shape[0]) * 0.
 
         # Inside box
         curr_mask = self.base_xgrid != self.base_xgrid
-        curr_mask[(self.y.shape[0]-oversample_boxlength)//2:
-                  -(self.y.shape[0]-oversample_boxlength)//2,
-                  (self.x.shape[0]-oversample_boxlength)//2:
-                  -(self.x.shape[0]-oversample_boxlength)//2] = True
+        curr_mask[(self.y.shape[0]-oversample_bl)//2:
+                  -(self.y.shape[0]-oversample_bl)//2,
+                  (self.x.shape[0]-oversample_bl)//2:
+                  -(self.x.shape[0]-oversample_bl)//2] = True
         curr_mask_bc = torch.broadcast_to(curr_mask,
                                           (model.params.shape[0],
                                            *curr_mask.shape))
@@ -250,15 +251,16 @@ class ImageModel(object):
         """ Oversampling in annulii by the factors 'oversample'. """
 
         # Make a centred coordinate grid
-        model_image = torch.stack([self.base_xgrid.clone().detach()]*model.params.shape[0])*0.
-        
+        model_image = torch.stack([self.base_xgrid.clone().detach()] *
+                                  model.params.shape[0]) * 0.
+
         # centred_base_xgrid = self.base_xgrid - ((self.x.shape[0]-1) / 2)
         # centred_base_ygrid = self.base_ygrid - ((self.y.shape[0]-1) / 2)
         centred_base_xgrid = self.base_xgrid - \
             torch.mean(self.submodels[0].x_0)
         centred_base_ygrid = self.base_ygrid - \
             torch.mean(self.submodels[0].y_0)
-        
+
         # Loop over oversampling radii
         for i in range(0, len(oversample_radii)):
 
@@ -287,15 +289,17 @@ class ImageModel(object):
                 # Evaluate the oversampling pixel coord 'shift',
                 # aka for an oversample factor of 4, this will be
                 # [-0.375 -0.125  0.125  0.375]
-                oversample_shift = (torch.arange(oversample[i], device=self.x.device) -
-                                    ((oversample[i]-1)/2)) * (1/oversample[i])
+                oversample_shift = ((torch.arange(oversample[i],
+                                                  device=self.x.device) -
+                                     ((oversample[i]-1)/2)) *
+                                    (1/oversample[i]))
 
                 # Make oversampled sub-pixel coord grid
                 xgrid = torch.tile(self.base_xgrid[curr_mask],
-                                                 (oversample[i], 1)).T
+                                   (oversample[i], 1)).T
                 xgrid = (xgrid + oversample_shift)
                 ygrid = torch.tile(self.base_ygrid[curr_mask],
-                                                 (oversample[i], 1)).T
+                                   (oversample[i], 1)).T
                 ygrid = (ygrid + oversample_shift)
 
                 # Manually meshgrid subpixel coords
@@ -330,7 +334,7 @@ class ImageModel(object):
 
         # Evaluate any pixels outside specified radii, if any
         curr_mask = (centred_base_xgrid**2 + centred_base_ygrid**2 >
-                          oversample_radii[-1]**2)
+                     oversample_radii[-1]**2)
         if curr_mask.any():
             xgrid = self.base_xgrid[curr_mask].unsqueeze(-1)
             ygrid = self.base_ygrid[curr_mask].unsqueeze(-1)
@@ -338,8 +342,8 @@ class ImageModel(object):
             ygrid = torch.stack(([ygrid]*model.params.shape[0]))
             evaluation = model.evaluate(xgrid, ygrid)
             curr_mask = torch.broadcast_to(curr_mask,
-                                                (model.params.shape[0],
-                                                 *curr_mask.shape))
+                                           (model.params.shape[0],
+                                            *curr_mask.shape))
             model_image[curr_mask] = evaluation.flatten()
 
         return model_image
@@ -348,7 +352,8 @@ class ImageModel(object):
         """ PSF convolution of an image cube using fast fourier transforms. """
 
         # Take fast fourier transform of model image
-        img_fft = torch.fft.rfft2(model_image) # 1/3 time
+        # 1/3 time
+        img_fft = torch.fft.rfft2(model_image)
 
         # Pad the PSF to match image shape with origin at image_shape // 2,
         # with thanks to https://stackoverflow.com/questions/54877892/
@@ -359,16 +364,17 @@ class ImageModel(object):
                                             (sz[1]+1)//2, sz[1]//2),
                                       'constant')
 
-
         # Shift the PSF image origin to the top left, required for Fourier
         psf = torch.fft.ifftshift(psf, dim=(-2, -1))
 
         # Take fast fourier transform of PSF image
-        psf = torch.fft.rfft2(psf, s=model_image.shape[1:]) # 1/3 time
+        # 1/3 time
+        psf = torch.fft.rfft2(psf, s=model_image.shape[1:])
 
         # Convolve image and psf, then inverse fourier transform
         conv_fft = img_fft * psf
 
-        conv_im = torch.fft.irfft2(conv_fft, s=model_image.shape[1:]) # 1/3 time
+        # 1/3 time
+        conv_im = torch.fft.irfft2(conv_fft, s=model_image.shape[1:])
 
         return conv_im

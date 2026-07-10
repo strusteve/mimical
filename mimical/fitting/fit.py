@@ -211,22 +211,7 @@ class fit(object):
         # Update oversampling if 'auto' is chosen
         if isinstance(self.oversample, str):
             if self.oversample == 'auto':
-
-                r_eff = modelpars[:, 1]
-                n = modelpars[:, 2]
-                coords = np.array((r_eff, n)).T
-                oversamp_1 = self.interpolator_1(coords)
-                oversamp_2 = self.interpolator_2(coords)
-                oversamp_3 = self.interpolator_3(coords)
-                oversampling = np.maximum(1,
-                                          np.round(np.vstack([oversamp_1,
-                                                              oversamp_2,
-                                                              oversamp_3]).T))
-                argmax = np.argmax(np.sum(oversampling, axis=1))
-
-                autosamp = oversampling[argmax].astype(int).tolist()
-                autorad = np.array(([1, max(2, r_eff[argmax]),
-                                     max(3, 3*r_eff[argmax])])).tolist()
+                autosamp, autorad = self.automatic_oversampling(modelpars)
                 self.image_models.update_oversampling(oversample=autosamp,
                                                       oversample_radii=autorad)
 
@@ -256,6 +241,28 @@ class fit(object):
 
         return residuals, sigma
 
+    def automatic_oversampling(self, modelpars):
+        """ Function to determine bets oversampling properties
+        for Sersic fits. """
+
+        r_eff = modelpars[:, 1]
+        n = modelpars[:, 2]
+        coords = np.array((r_eff, n)).T
+        oversamp_1 = self.interpolator_1(coords)
+        oversamp_2 = self.interpolator_2(coords)
+        oversamp_3 = self.interpolator_3(coords)
+        oversampling = np.maximum(1,
+                                  np.round(np.vstack([oversamp_1,
+                                                      oversamp_2,
+                                                      oversamp_3]).T))
+        argmax = np.argmax(np.sum(oversampling, axis=1))
+
+        autosamp = oversampling[argmax].astype(int).tolist()
+        autorad = np.array(([1, max(2, r_eff[argmax]),
+                             max(3, 3*r_eff[argmax])])).tolist()
+
+        return autosamp, autorad
+
     def lnlike(self, param_vec):
         """ Returns the log-likelihood for a given parameter vector. """
 
@@ -271,7 +278,7 @@ class fit(object):
         return log_like
 
     def run(self, n_live=400, pool=None, oversample=None,
-            oversample_boxlength=None, oversample_radii=None,
+            oversample_bl=None, oversample_radii=None,
             gpu_acceleration=False, verbose_sampler=True):
         """ Run the sampler and save results.
 
@@ -288,7 +295,7 @@ class fit(object):
             Oversample factor for the entire image or annuli defined by
             oversample radii.
 
-        oversample_boxlength : int
+        oversample_bl : int
             Width of box about image center to oversample within.
 
         oversample_radii : int or list
@@ -304,7 +311,7 @@ class fit(object):
 
         # Set oversampling and find accelerator platform if available.
         self.oversample = oversample
-        self.oversamp_bl = oversample_boxlength
+        self.oversample_bl = oversample_bl
         self.oversample_radii = oversample_radii
         if gpu_acceleration:
             curr_accel = torch.accelerator.current_accelerator()
@@ -319,7 +326,8 @@ class fit(object):
                                      device=self.accel)
         else:
             psf_accel = self.psfs
-        submodels = [self.submodel()]*len(self.phandler.nsources)
+        submodels = [self.submodel() for i in
+                     range(len(self.phandler.nsources))]
         self.image_models = ImageModel(torch.arange(self.images.shape[2],
                                                     device=self.accel),
                                        torch.arange(self.images.shape[1],
@@ -328,12 +336,12 @@ class fit(object):
                                        psf=psf_accel,
                                        psf_pa=np.zeros(len(self.wavs)),
                                        oversample=self.oversample,
-                                       oversample_boxlength=self.oversamp_bl,
+                                       oversample_bl=self.oversample_bl,
                                        oversample_radii=self.oversample_radii)
 
         # Load automatic oversampling table if auto
-        if isinstance(oversample, str):
-            if oversample == 'auto':
+        if isinstance(self.oversample, str):
+            if self.oversample == 'auto':
                 if not os.path.isfile(tabledir +
                                       '/table1_values.txt'):
                     make_oversampling_table()
@@ -406,8 +414,6 @@ class fit(object):
 
         # Sample an appropriately weighted posterior for representative samples
         n_post = 10000
-        print(self.points.shape[0])
-        print(len(self.log_w))
         indices = np.random.choice(np.arange(self.points.shape[0]),
                                    size=n_post, p=np.exp(self.log_w))
         self.samples = self.points[indices]
@@ -424,7 +430,6 @@ class fit(object):
         dic['chisq'] = chisq
         dic['numd'] = numd
         dic['red_chisq'] = chisq / (numd-self.phandler.ndim)
-        dic['sampling_time'] = self.sampling_time
         df1 = pd.DataFrame(dic)
 
         # Save per filter values
@@ -444,14 +449,13 @@ class fit(object):
         dic['chisq'] = chisq
         dic['numd'] = numd
         dic['red_chisq'] = chisq / (numd-self.phandler.ndim)
-        dic['sampling_time'] = self.sampling_time
         df2 = pd.DataFrame(dic)
 
         # If not part of a catalogue fit, save individual
         if self.runtag == '':
             df1.to_csv(dir_path+f'/mimical_output/cats/{self.id}_'
                        'sampcat.csv', index=False)
-            df2.to_csv(dir_path+f'/mimical_output/cats{self.runtag}_'
+            df2.to_csv(dir_path+f'/mimical_output/cats/{self.id}_'
                        'filtcat.csv', index=False)
 
         # If part of a catalogue fit, append to it.
@@ -510,10 +514,21 @@ class fit(object):
         """ Wrapper to plot output. """
 
         # Plot and save the maxL fit
+        if isinstance(self.oversample, str):
+            if self.oversample == 'auto':
+                bestsamp = self.points[np.argmax(self.log_l)]
+                modelpars = self.phandler.revert(bestsamp)
+                res = self.automatic_oversampling(modelpars)
+                oversample, oversample_radii = res
+            else:
+                oversample = self.oversample
+                oversample_radii = self.oversample_radii
+
         plotting.plot_best(self.images, self.wavs, self.image_models,
                            self.points[np.argmax(self.log_l)],
                            self.phandler, self.filter_names,
-                           self.contmaps)
+                           self.contmaps, oversample,
+                           self.oversample_bl, oversample_radii)
         plt.savefig(dir_path+f'/mimical_output/plots{self.runtag}/' +
                     f'{self.id}_fit_summary.pdf', bbox_inches='tight', dpi=500,
                     transparent=True)
