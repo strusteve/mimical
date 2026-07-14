@@ -23,10 +23,12 @@ class Rotator(object):
                                              map_location=device))
         self.square_predictor = SquareIntersectionPredictor(model, device)
 
-        offset_y, offset_x = torch.meshgrid(
-        torch.tensor([-1, 0, 1], device=device),
-        torch.tensor([-1, 0, 1], device=device),
-        indexing="ij")
+        offset_y, offset_x = torch.meshgrid(torch.tensor([-1, 0, 1],
+                                                         device=device),
+                                            torch.tensor([-1, 0, 1],
+                                                         device=device),
+                                            indexing="ij")
+
         self.offsets = torch.stack((offset_x, offset_y), dim=0)
 
     def interpolation(self, images, angles):
@@ -44,27 +46,23 @@ class Rotator(object):
             device=images.device,
             dtype=images.dtype)
 
-        # Build affine-rotation matrix 
+        # Build affine-rotation matrix
         theta[:, 0, 0] = torch.cos(torch.deg2rad(angles))
         theta[:, 0, 1] = -torch.sin(torch.deg2rad(angles))
         theta[:, 1, 0] = torch.sin(torch.deg2rad(angles))
         theta[:, 1, 1] = torch.cos(torch.deg2rad(angles))
 
         # Compute pytorch flowfield grid
-        grid = F.affine_grid(
-            theta,
-            images4.shape,
-            align_corners=False
-        )
+        grid = F.affine_grid(theta,
+                             images4.shape,
+                             align_corners=False)
 
         # Sample pytorch flowfield grid
-        rotated = F.grid_sample(
-            images4,
-            grid,
-            mode="bilinear",
-            padding_mode="zeros",
-            align_corners=False
-        )
+        rotated = F.grid_sample(images4,
+                                grid,
+                                mode="bilinear",
+                                padding_mode="zeros",
+                                align_corners=False)
 
         return rotated[:, 0]
 
@@ -264,7 +262,8 @@ class Rotator(object):
                            self.offsets[None, :, None, None, :, :])
 
         # Reorder expanded neighbour pixel grid for indexing
-        dim0 = utilnum[:, None, None, None, None].expand_as(expanded_origin[:, 0]).flatten()
+        dim0 = utilnum[:, None, None, None, None].\
+            expand_as(expanded_origin[:, 0]).flatten()
         dim1 = expanded_origin[:, 1].flatten()
         dim2 = expanded_origin[:, 0].flatten()
         expanded_origin_dimcoords = torch.stack((dim0,
@@ -296,7 +295,7 @@ class Rotator(object):
                                  torch.arccos(separation / (2*radius))) - \
                                 (0.5 * separation *
                                  torch.sqrt((4*(radius**2)) - (separation**2)))
-            
+
             norm = torch.nansum(intersecting_area, dim=(-2, -1), keepdim=True)
             intersecting_area = intersecting_area / norm
             intersecting_area[separation >= (2*radius)] = 0
@@ -313,11 +312,11 @@ class Rotator(object):
             dxs = separation_xy[:, 0]
             dys = separation_xy[:, 1]
 
-            thetas = theta[:,None,None,None,None]
+            ths = theta[:, None, None, None, None].expand_as(dxs)
 
             intersecting_area = self.square_predictor.predict(dxs.reshape(-1),
                                                               dys.reshape(-1),
-                                                              thetas.expand_as(dxs).reshape(-1))
+                                                              ths.reshape(-1))
             return intersecting_area.reshape(dxs.shape)
 
         if type == 'circle':

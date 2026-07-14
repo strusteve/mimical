@@ -130,7 +130,7 @@ class ImageModel(object):
                 '''
                 psf_rot = self.rot.interpolation(self.psf, self.psf_pa)
                 norm = 1 / torch.sum(psf_rot, (1, 2))
-                psf_rot = (psf_rot.permute(2,1,0) * norm).permute(2,1,0)
+                psf_rot = psf_rot * norm[:, None, None]
 
             # Convolve submodel image with PSF image
             out = self.PSFconvolve(model_image, psf_rot)
@@ -145,7 +145,7 @@ class ImageModel(object):
     def evaluate_over_grid(self, model, oversample, oversample_bl,
                            oversample_radii):
         """ Evaluate submodel over the pixel grid. """
-        
+
         model.evaluate = torch.compile(model.evaluate)
 
         # If no oversampling specified
@@ -261,7 +261,7 @@ class ImageModel(object):
 
     def annuli_oversampling(self, model, oversample, oversample_radii):
         """ Oversampling in annulii by the factors 'oversample'. """
-        
+
         # Make a centred coordinate grid
         model_image = torch.zeros(
             (model.params.shape[0], *self.base_xgrid.shape),

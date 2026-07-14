@@ -67,8 +67,10 @@ class Sersic(object):
 
         r2 = (x_maj * self.inv_r_eff[:, None, None]).square()
         r2 += (x_min * self.inv_b[:, None, None]).square()
-        
-        final = self.amplitude[:, None, None] * torch.exp(-self.bn[:, None, None] * (torch.pow(r2, 0.5 * self.inv_n[:, None, None]) - 1))
+
+        final = (self.amplitude[:, None, None] *
+                 torch.exp(-self.bn[:, None, None] *
+                           (torch.pow(r2, 0.5 *
+                                      self.inv_n[:, None, None]) - 1)))
 
         return final
-    

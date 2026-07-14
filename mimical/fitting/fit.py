@@ -277,8 +277,8 @@ class fit(object):
         log_like_array = norm + ((-(residuals)**2) / (2*(sigma**2)))
         log_like = np.sum(log_like_array)
 
-        self.calls+=1
-        self.calltime+=time.time()-t1
+        self.calls += 1
+        self.calltime += time.time()-t1
         if self.calls % 100 == 0:
             print(self.calltime/self.calls)
 
