@@ -2,8 +2,8 @@ from ..utils import MLP
 from ..utils import SquareIntersectionPredictor
 from ..utils import make_nn
 import torch
-import torchvision
 import os
+import torch.nn.functional as F
 
 install_dir = os.path.dirname(os.path.realpath(__file__))
 netdir = (install_dir + "/utils/neural_networks").replace("/models", "")
@@ -23,24 +23,50 @@ class Rotator(object):
                                              map_location=device))
         self.square_predictor = SquareIntersectionPredictor(model, device)
 
-    def loop(self, images, angles):
+        offset_y, offset_x = torch.meshgrid(
+        torch.tensor([-1, 0, 1], device=device),
+        torch.tensor([-1, 0, 1], device=device),
+        indexing="ij")
+        self.offsets = torch.stack((offset_x, offset_y), dim=0)
+
+    def interpolation(self, images, angles):
         """
-        Basic image-cube rotation function, not vectorised but is generally
-        faster for single image fits and/or without acceleration. Loops over
-        PyTorch torchvision module (similar to scipy.ndimage.rotate).
+        Fully vectorised image-cube rotation function based on the
+        classic interpolation method.
         """
 
-        rotated_images = images.clone().detach()
-        for i in range(len(angles)):
-            if angles[i] == 0.:
-                continue
-            else:
-                interpmode = torchvision.transforms.InterpolationMode.BILINEAR
-                rotated_images[i] = torchvision.transforms.functional.rotate(
-                    images[i].unsqueeze(0), float(angles[i]),
-                    interpolation=interpmode)
+        N, H, W = images.shape
 
-        return rotated_images
+        images4 = images.unsqueeze(1)  # (N,1,H,W)
+
+        theta = torch.zeros(
+            (N, 2, 3),
+            device=images.device,
+            dtype=images.dtype)
+
+        # Build affine-rotation matrix 
+        theta[:, 0, 0] = torch.cos(torch.deg2rad(angles))
+        theta[:, 0, 1] = -torch.sin(torch.deg2rad(angles))
+        theta[:, 1, 0] = torch.sin(torch.deg2rad(angles))
+        theta[:, 1, 1] = torch.cos(torch.deg2rad(angles))
+
+        # Compute pytorch flowfield grid
+        grid = F.affine_grid(
+            theta,
+            images4.shape,
+            align_corners=False
+        )
+
+        # Sample pytorch flowfield grid
+        rotated = F.grid_sample(
+            images4,
+            grid,
+            mode="bilinear",
+            padding_mode="zeros",
+            align_corners=False
+        )
+
+        return rotated[:, 0]
 
     def mario(self, images, angles, base_x=None, base_y=None, utilnum=None):
         """
@@ -145,7 +171,7 @@ class Rotator(object):
         base_x = base_x-((images[0].shape[1]-1)/2)
         base_y = base_y-((images[0].shape[0]-1)/2)
         coords = torch.stack([base_x.flatten(), base_y.flatten()])
-        coords = torch.stack([coords]*len(angles))
+        coords = coords.unsqueeze(0).expand(len(angles), -1, -1)
         theta = torch.deg2rad(angles)
         rotM = torch.stack([torch.stack([torch.cos(theta), -torch.sin(theta)]),
                             torch.stack([torch.sin(theta), torch.cos(theta)])])
@@ -163,8 +189,7 @@ class Rotator(object):
         coords = torch.round(coords).to(torch.int)
 
         # Reshape pixel coord array for masking
-        dim0 = ((coords[:, 0]*0).permute(2, 1, 0) +
-                utilnum).permute(2, 1, 0).flatten()
+        dim0 = utilnum[:, None, None].expand_as(coords[:, 0]).flatten()
         dim1 = coords[:, 1].flatten()
         dim2 = coords[:, 0].flatten()
         final_rot = torch.stack((dim0, dim1, dim2))
@@ -217,7 +242,7 @@ class Rotator(object):
         base_x = base_x-((images[0].shape[1]-1)/2)
         base_y = base_y-((images[0].shape[0]-1)/2)
         coords = torch.stack([base_x.flatten(), base_y.flatten()])
-        coords = torch.stack([coords]*len(angles))
+        oords = coords.unsqueeze(0).expand(len(angles), -1, -1)
         theta = torch.deg2rad(angles)
         rotM = torch.stack([torch.stack([torch.cos(theta), -torch.sin(theta)]),
                             torch.stack([torch.sin(theta), torch.cos(theta)])])
@@ -235,25 +260,11 @@ class Rotator(object):
         origin_coords_rounded = torch.round(coords).to(torch.int)
 
         # Expand about nearest input pixel
-        expanded_origin = torch.zeros((*origin_coords_rounded.shape, 3, 3),
-                                      device=images.device)
-        expanded_origin = (expanded_origin.permute(5, 4, 3, 2, 1, 0) +
-                           origin_coords_rounded.permute(3, 2, 1, 0))
-        expanded_origin = expanded_origin.permute(5, 4, 3, 2, 1, 0)
-        ph1 = torch.tensor([[-1, 0, 1],
-                            [-1, 0, 1],
-                            [-1, 0, 1]],
-                           device=images.device)
-        expanded_origin[:, 0, :, :, :, :] += ph1
-        ph2 = torch.tensor([[1, 1, 1],
-                            [0, 0, 0],
-                            [-1, -1, -1]],
-                           device=images.device)
-        expanded_origin[:, 1, :, :, :, :] += ph2
+        expanded_origin = (origin_coords_rounded[..., None, None] +
+                           self.offsets[None, :, None, None, :, :])
 
         # Reorder expanded neighbour pixel grid for indexing
-        dim0 = ((expanded_origin[:, 0]*0).permute(4, 3, 2, 1, 0) +
-                utilnum).permute(4, 3, 2, 1, 0).flatten()
+        dim0 = utilnum[:, None, None, None, None].expand_as(expanded_origin[:, 0]).flatten()
         dim1 = expanded_origin[:, 1].flatten()
         dim2 = expanded_origin[:, 0].flatten()
         expanded_origin_dimcoords = torch.stack((dim0,
@@ -277,17 +288,17 @@ class Rotator(object):
             """ Weight pixels in the local region by circular overlap. """
             # Circle of area 1 centred on each square
             radius = 1 / (3.14159265358979323846**0.5)
-            separation_xy = (expanded_origin.permute(5, 4, 3, 2, 1, 0) -
-                             origin_coords.permute(3, 2, 1, 0))
-            separation_xy = separation_xy.permute(5, 4, 3, 2, 1, 0)
+            separation_xy = (expanded_origin.float()
+                             - origin_coords[..., None, None])
             separation = torch.sum(separation_xy**2, dim=1)
+
             intersecting_area = (2 * (radius**2) *
                                  torch.arccos(separation / (2*radius))) - \
                                 (0.5 * separation *
                                  torch.sqrt((4*(radius**2)) - (separation**2)))
-            norm = torch.nansum(intersecting_area, dim=(3, 4)).permute(2, 1, 0)
-            intersecting_area = (intersecting_area.permute(4, 3, 2, 1, 0) /
-                                 norm).permute(4, 3, 2, 1, 0)
+            
+            norm = torch.nansum(intersecting_area, dim=(-2, -1), keepdim=True)
+            intersecting_area = intersecting_area / norm
             intersecting_area[separation >= (2*radius)] = 0
             return intersecting_area
 
@@ -296,18 +307,18 @@ class Rotator(object):
             """ Weight pixels in the local region by square overlap.
                 As there is no simple analytical formula for this, a
                 neural network is used to determine the overlap area. """
-            separation_xy = (expanded_origin.permute(5, 4, 3, 2, 1, 0) -
-                             origin_coords.permute(3, 2, 1, 0))
-            separation_xy = separation_xy.permute(5, 4, 3, 2, 1, 0)
-            dxs = separation_xy[:, 0, :, :, :, :]
-            dys = separation_xy[:, 1, :, :, :, :]
-            thetas = ((dxs.clone().detach() * 0).permute(4, 3, 2, 1, 0)
-                      + theta).permute(4, 3, 2, 1, 0)
-            intersecting_area = self.square_predictor.predict(dxs.flatten(),
-                                                              dys.flatten(),
-                                                              thetas.flatten())
-            intersecting_area = intersecting_area.reshape(*dxs.shape)
-            return intersecting_area
+            separation_xy = (expanded_origin.float()
+                             - origin_coords[..., None, None])
+
+            dxs = separation_xy[:, 0]
+            dys = separation_xy[:, 1]
+
+            thetas = theta[:,None,None,None,None]
+
+            intersecting_area = self.square_predictor.predict(dxs.reshape(-1),
+                                                              dys.reshape(-1),
+                                                              thetas.expand_as(dxs).reshape(-1))
+            return intersecting_area.reshape(dxs.shape)
 
         if type == 'circle':
             # Get summing weights of all neighbour input pixels

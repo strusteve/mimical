@@ -1,5 +1,5 @@
 from .rotationmodels import Rotator
-
+import time
 import torch
 import warnings
 import matplotlib.pyplot as plt
@@ -97,7 +97,6 @@ class ImageModel(object):
 
     def render(self):
         """ Render the ImageModel onto its pixel grid. """
-
         # Evaluate submodel over the pixel grid
         model_image = self.evaluate_over_grid(self.submodels[0],
                                               self.oversample,
@@ -115,7 +114,7 @@ class ImageModel(object):
 
         # If no PSF is provided, return base model
         if self.psf is None:
-            return model_image
+            out = model_image
 
         # If PSF is provided, rotate if desired then convolve
         else:
@@ -123,20 +122,31 @@ class ImageModel(object):
             if (self.psf_pa == 0).all():
                 psf_rot = self.psf
             else:
+                '''
                 psf_rot = self.rot.intersection(self.psf, self.psf_pa,
                                                 base_x=self.psf_xgrid,
                                                 base_y=self.psf_ygrid,
                                                 utilnum=self.utilnum)
-                psf_rot = (psf_rot.T / torch.sum(psf_rot, (1, 2))).T
+                '''
+                psf_rot = self.rot.interpolation(self.psf, self.psf_pa)
+                norm = 1 / torch.sum(psf_rot, (1, 2))
+                psf_rot = (psf_rot.permute(2,1,0) * norm).permute(2,1,0)
 
             # Convolve submodel image with PSF image
-            final_image = self.PSFconvolve(model_image, psf_rot)
+            out = self.PSFconvolve(model_image, psf_rot)
 
-            return final_image
+        if self.x.device.type == "cuda":
+            torch.cuda.empty_cache()
+        elif self.x.device.type == "mps":
+            torch.mps.empty_cache()
+
+        return out
 
     def evaluate_over_grid(self, model, oversample, oversample_bl,
                            oversample_radii):
         """ Evaluate submodel over the pixel grid. """
+        
+        model.evaluate = torch.compile(model.evaluate)
 
         # If no oversampling specified
         if oversample is None:
@@ -174,34 +184,38 @@ class ImageModel(object):
         oversample_shift = (torch.arange(oversample, device=self.x.device) -
                             ((oversample-1) / 2)) * (1 / oversample)
 
-        # Make oversampled sub-pixel coord grid
-        xgrid = torch.tile(self.base_xgrid.flatten(),
-                           (oversample, 1)).T
-        xgrid = (xgrid + oversample_shift)
-        ygrid = torch.tile(self.base_ygrid.flatten(),
-                           (oversample, 1)).T
-        ygrid = (ygrid + oversample_shift)
+        shift_x, shift_y = torch.meshgrid(
+            oversample_shift,
+            oversample_shift,
+            indexing="xy")
 
-        # Manually meshgrid subpixel coords
-        xgrid = torch.tile(xgrid, (1, oversample))
-        ygrid = torch.repeat_interleave(ygrid, oversample, axis=1)
+        xgrid = self.base_xgrid.flatten()
+        ygrid = self.base_ygrid.flatten()
 
-        xgrid = torch.stack(([xgrid]*model.params.shape[0]))
-        ygrid = torch.stack(([ygrid]*model.params.shape[0]))
+        xgrid = xgrid[:, None, None] + shift_x
+        ygrid = ygrid[:, None, None] + shift_y
+
+        xgrid = xgrid.reshape(xgrid.shape[0], -1)
+        ygrid = ygrid.reshape(ygrid.shape[0], -1)
+
+        xgrid = xgrid.unsqueeze(0).expand(model.params.shape[0], -1, -1)
+        ygrid = ygrid.unsqueeze(0).expand(model.params.shape[0], -1, -1)
 
         evaluation = model.evaluate(xgrid, ygrid)
-
-        evaluation = torch.sum(evaluation, dim=2)
+        evaluation = torch.mean(evaluation, dim=2)
 
         return evaluation.reshape(model.params.shape[0],
                                   len(self.y),
-                                  len(self.x)) / oversample**2
+                                  len(self.x))
 
     def window_oversampling(self, model, oversample, oversample_bl):
         """ Oversampled a centred window of length 'oversample_bl'. """
 
-        model_image = torch.stack([self.base_xgrid.clone().detach()] *
-                                  model.params.shape[0]) * 0.
+        model_image = torch.zeros(
+            (model.params.shape[0], *self.base_xgrid.shape),
+            device=self.base_xgrid.device,
+            dtype=torch.float32,
+        )
 
         # Inside box
         curr_mask = self.base_xgrid != self.base_xgrid
@@ -209,50 +223,51 @@ class ImageModel(object):
                   -(self.y.shape[0]-oversample_bl)//2,
                   (self.x.shape[0]-oversample_bl)//2:
                   -(self.x.shape[0]-oversample_bl)//2] = True
-        curr_mask_bc = torch.broadcast_to(curr_mask,
-                                          (model.params.shape[0],
-                                           *curr_mask.shape))
-        xgrid = self.base_xgrid[curr_mask]
-        ygrid = self.base_ygrid[curr_mask]
 
         oversample_shift = (torch.arange(oversample, device=self.x.device) -
                             ((oversample-1) / 2)) * (1 / oversample)
 
-        # Make oversampled sub-pixel coord grid
-        xgrid = torch.tile(xgrid, (oversample, 1)).T
-        xgrid = (xgrid + oversample_shift)
-        ygrid = torch.tile(ygrid, (oversample, 1)).T
-        ygrid = (ygrid + oversample_shift)
+        shift_x, shift_y = torch.meshgrid(
+            oversample_shift,
+            oversample_shift,
+            indexing="xy")
 
-        # Manually meshgrid subpixel coords
-        xgrid = torch.tile(xgrid, (1, oversample))
-        ygrid = torch.repeat_interleave(ygrid, oversample, axis=1)
-        xgrid = torch.stack(([xgrid]*model.params.shape[0]))
-        ygrid = torch.stack(([ygrid]*model.params.shape[0]))
+        xgrid = self.base_xgrid[curr_mask]
+        ygrid = self.base_ygrid[curr_mask]
+
+        xgrid = xgrid[:, None, None] + shift_x
+        ygrid = ygrid[:, None, None] + shift_y
+
+        xgrid = xgrid.reshape(xgrid.shape[0], -1)
+        ygrid = ygrid.reshape(ygrid.shape[0], -1)
+
+        xgrid = xgrid.unsqueeze(0).expand(model.params.shape[0], -1, -1)
+        ygrid = ygrid.unsqueeze(0).expand(model.params.shape[0], -1, -1)
 
         # Evaluate and downsample
         evaluation = model.evaluate(xgrid, ygrid)
-        evaluation = torch.sum(evaluation, dim=2) / oversample**2
-        model_image[curr_mask_bc] = evaluation.flatten()
+        evaluation = torch.mean(evaluation, dim=2)
+        model_image[:, curr_mask] = evaluation
 
         # Outside box
-        xgrid = self.base_xgrid[~curr_mask]
-        ygrid = self.base_ygrid[~curr_mask]
-        xgrid = torch.stack(([xgrid] *
-                             model.params.shape[0])).unsqueeze(-1)
-        ygrid = torch.stack(([ygrid] *
-                             model.params.shape[0])).unsqueeze(-1)
-        evaluation = model.evaluate(xgrid, ygrid)
-        model_image[~curr_mask_bc] = evaluation.flatten()
+        xgrid = self.base_xgrid[~curr_mask].unsqueeze(-1)
+        ygrid = self.base_ygrid[~curr_mask].unsqueeze(-1)
+        xgrid = xgrid.unsqueeze(0).expand(model.params.shape[0], -1, -1)
+        ygrid = ygrid.unsqueeze(0).expand(model.params.shape[0], -1, -1)
+        evaluation = model.evaluate(xgrid, ygrid).squeeze(-1)
+        model_image[:, ~curr_mask] = evaluation
 
         return model_image
 
     def annuli_oversampling(self, model, oversample, oversample_radii):
         """ Oversampling in annulii by the factors 'oversample'. """
-
+        
         # Make a centred coordinate grid
-        model_image = torch.stack([self.base_xgrid.clone().detach()] *
-                                  model.params.shape[0]) * 0.
+        model_image = torch.zeros(
+            (model.params.shape[0], *self.base_xgrid.shape),
+            device=self.base_xgrid.device,
+            dtype=torch.float32,
+        )
 
         # centred_base_xgrid = self.base_xgrid - ((self.x.shape[0]-1) / 2)
         # centred_base_ygrid = self.base_ygrid - ((self.y.shape[0]-1) / 2)
@@ -261,57 +276,61 @@ class ImageModel(object):
         centred_base_ygrid = self.base_ygrid - \
             torch.mean(self.submodels[0].y_0)
 
+        # Bucketize
+        r2 = centred_base_xgrid.square() + centred_base_ygrid.square()
+        buckets = torch.tensor([0,
+                                *[r**r for r in oversample_radii],
+                                1e99],
+                               device=self.base_xgrid.device)
+        bucketsamp = [*oversample, 1]
+        annulus = torch.bucketize(r2, buckets)
+
         # Loop over oversampling radii
-        for i in range(0, len(oversample_radii)):
+        for i in range(len(buckets)):
 
-            # If first radii, include centre
-            if i == 0:
-                curr_mask = (centred_base_xgrid**2 + centred_base_ygrid**2 <=
-                             oversample_radii[i]**2)
+            curr_mask = annulus == (i+1)
 
-            # Else, mask in annuli
-            else:
-                curr_mask = (centred_base_xgrid**2 + centred_base_ygrid**2 <=
-                             oversample_radii[i]**2) & \
-                            (centred_base_xgrid**2 + centred_base_ygrid**2 >
-                             oversample_radii[i-1]**2)
+            if not curr_mask.any():
+                continue
 
             # If oversample is 1, skip.
-            if oversample[i] == 1:
+            if bucketsamp[i] == 1:
                 # Evaluate over sub-pixel grid
                 xgrid = self.base_xgrid[curr_mask].unsqueeze(-1)
                 ygrid = self.base_ygrid[curr_mask].unsqueeze(-1)
-                xgrid = torch.stack(([xgrid] * model.params.shape[0]))
-                ygrid = torch.stack(([ygrid] * model.params.shape[0]))
-                evaluation = model.evaluate(xgrid, ygrid)
+                xgrid = xgrid.unsqueeze(0).expand(model.params.shape[0],
+                                                  -1, -1)
+                ygrid = ygrid.unsqueeze(0).expand(model.params.shape[0],
+                                                  -1, -1)
+                evaluation = model.evaluate(xgrid, ygrid).squeeze(-1)
 
             else:
                 # Evaluate the oversampling pixel coord 'shift',
                 # aka for an oversample factor of 4, this will be
                 # [-0.375 -0.125  0.125  0.375]
-                oversample_shift = ((torch.arange(oversample[i],
-                                                  device=self.x.device) -
-                                     ((oversample[i]-1)/2)) *
-                                    (1/oversample[i]))
+                n = bucketsamp[i]
+                oversample_shift = (
+                    (torch.arange(n, device=self.x.device) - (n - 1) / 2) / n
+                )
 
-                # Make oversampled sub-pixel coord grid
-                xgrid = torch.tile(self.base_xgrid[curr_mask],
-                                   (oversample[i], 1)).T
-                xgrid = (xgrid + oversample_shift)
-                ygrid = torch.tile(self.base_ygrid[curr_mask],
-                                   (oversample[i], 1)).T
-                ygrid = (ygrid + oversample_shift)
+                shift_x, shift_y = torch.meshgrid(
+                    oversample_shift,
+                    oversample_shift,
+                    indexing="xy",)
 
-                # Manually meshgrid subpixel coords
-                xgrid = torch.tile(xgrid,
-                                   (1, oversample[i]))
-                ygrid = torch.repeat_interleave(ygrid,
-                                                oversample[i],
-                                                axis=1)
-                xgrid = torch.stack(([xgrid] *
-                                     model.params.shape[0]))
-                ygrid = torch.stack(([ygrid] *
-                                     model.params.shape[0]))
+                xgrid = self.base_xgrid[curr_mask]
+                ygrid = self.base_ygrid[curr_mask]
+
+                xgrid = xgrid[:, None, None] + shift_x
+                ygrid = ygrid[:, None, None] + shift_y
+
+                xgrid = xgrid.reshape(xgrid.shape[0], -1)
+                ygrid = ygrid.reshape(ygrid.shape[0], -1)
+
+                xgrid = xgrid.unsqueeze(0).expand(model.params.shape[0],
+                                                  -1, -1)
+                ygrid = ygrid.unsqueeze(0).expand(model.params.shape[0],
+                                                  -1, -1)
 
                 '''
                 # Plot the sub-pixel coord grid
@@ -324,27 +343,9 @@ class ImageModel(object):
 
                 # Evaluate over sub-pixel grid
                 evaluation = model.evaluate(xgrid, ygrid)
+                evaluation = evaluation.mean(dim=2)
 
-                # Downsample the evaluated grid to the pixel scale.
-                evaluation = torch.sum(evaluation, dim=2) / oversample[i]**2
-
-            curr_mask = torch.broadcast_to(curr_mask, (model.params.shape[0],
-                                                       *curr_mask.shape))
-            model_image[curr_mask] = evaluation.flatten()
-
-        # Evaluate any pixels outside specified radii, if any
-        curr_mask = (centred_base_xgrid**2 + centred_base_ygrid**2 >
-                     oversample_radii[-1]**2)
-        if curr_mask.any():
-            xgrid = self.base_xgrid[curr_mask].unsqueeze(-1)
-            ygrid = self.base_ygrid[curr_mask].unsqueeze(-1)
-            xgrid = torch.stack(([xgrid]*model.params.shape[0]))
-            ygrid = torch.stack(([ygrid]*model.params.shape[0]))
-            evaluation = model.evaluate(xgrid, ygrid)
-            curr_mask = torch.broadcast_to(curr_mask,
-                                           (model.params.shape[0],
-                                            *curr_mask.shape))
-            model_image[curr_mask] = evaluation.flatten()
+            model_image[:, curr_mask] = evaluation
 
         return model_image
 

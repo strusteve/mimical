@@ -9,15 +9,7 @@ class Sersic(object):
 
         self.param_names = ['flux', 'r_eff', 'n', 'x_0',
                             'y_0', 'ellip', 'theta']
-
-        self.params = parameters
-        self.flux = parameters[:, 0]
-        self.r_eff = parameters[:, 1]
-        self.n = parameters[:, 2]
-        self.x_0 = parameters[:, 3]
-        self.y_0 = parameters[:, 4]
-        self.ellip = parameters[:, 5]
-        self.theta = parameters[:, 6]
+        self.update_parameters(parameters)
 
     def update_parameters(self, parameters):
 
@@ -30,7 +22,8 @@ class Sersic(object):
         self.ellip = parameters[:, 5]
         self.theta = parameters[:, 6]
 
-    def evaluate(self, x, y):
+        self.inv_r_eff = 1 / self.r_eff
+        self.inv_n = 1 / self.n
 
         # bn approximation from Asali et al. 2025
         a0 = 1.8073182821237496e-4
@@ -40,31 +33,42 @@ class Sersic(object):
         a4 = -0.9727511612512357
         a5 = 94.78011643586419
         a6 = -0.006044236674273689
-        An = (2*self.n) - (1/3) + (4 / (405 * self.n)) + (46 / (25515 *
-                                                                (self.n**2)))
-        Cn = (((a0/(self.n+torch.exp(self.n))) + a1) / ((a2-self.n)**2)) * \
-             (torch.log(self.n) + (((a3*self.n) + a4) / ((self.n**(-4)) + a5) /
-                                   (self.n + a6)))
-        bn = An + Cn
+        An = ((2*self.n) - (1/3) + (4 / (405 * self.n)) +
+              (46 / (25515 * (self.n.square()))))
+        Cn = ((((a0/(self.n+torch.exp(self.n))) + a1) / ((a2-self.n).square()))
+              * (torch.log(self.n) + (((a3*self.n) + a4) /
+                                      ((self.n**(-4)) + a5) /
+                                      (self.n + a6))))
+        self.bn = An + Cn
 
-        cos_theta = torch.cos(self.theta)
-        sin_theta = torch.sin(self.theta)
-
-        xT = x.permute(2, 1, 0)
-        yT = y.permute(2, 1, 0)
-
-        x_maj = (xT - self.x_0) * cos_theta + (yT - self.y_0) * sin_theta
-        x_min = -(xT - self.x_0) * sin_theta + (yT - self.y_0) * cos_theta
-
-        b = (1 - self.ellip) * self.r_eff
-        z = torch.sqrt((x_maj / self.r_eff) ** 2 + (x_min / b) ** 2)
+        self.cos_theta = torch.cos(self.theta)
+        self.sin_theta = torch.sin(self.theta)
+        self.b = (1 - self.ellip) * self.r_eff
+        self.inv_b = 1 / self.b
 
         # With thanks to Peng et al. 2002, Equation 7
-        amplitude = self.flux / (2 * torch.pi * (self.r_eff**2) *
-                                 torch.exp(bn +
-                                           torch.special.gammaln(2*self.n)) *
-                                 self.n * (bn**(-2*self.n)) * (1.-self.ellip))
+        self.amplitude = self.flux / (2 * torch.pi * (self.r_eff.square()) *
+                                      torch.exp(self.bn +
+                                                torch.special.gammaln(2 *
+                                                                      self.n))
+                                      * self.n * (self.bn**(-2*self.n)) *
+                                      (1.-self.ellip))
 
-        final = (amplitude * torch.exp(-bn * (z ** (1 / self.n) - 1.0)))
+    def evaluate(self, x, y):
 
-        return final.permute(2, 1, 0)
+        dx = x - self.x_0[:, None, None]
+        dy = y - self.y_0[:, None, None]
+
+        cos = self.cos_theta[:, None, None]
+        sin = self.sin_theta[:, None, None]
+
+        x_maj = dx * cos + dy * sin
+        x_min = -dx * sin + dy * cos
+
+        r2 = (x_maj * self.inv_r_eff[:, None, None]).square()
+        r2 += (x_min * self.inv_b[:, None, None]).square()
+        
+        final = self.amplitude[:, None, None] * torch.exp(-self.bn[:, None, None] * (torch.pow(r2, 0.5 * self.inv_n[:, None, None]) - 1))
+
+        return final
+    

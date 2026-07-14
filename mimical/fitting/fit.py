@@ -80,8 +80,6 @@ class fit(object):
                  submodel=Sersic, se_clean=False, se_maxdist='default',
                  dilute=True, dilute_radius=5, runtag=''):
 
-        self.genesis = time.time()
-
         # Set positional arguments
         self.id = id
         self.images = np.array((images))
@@ -151,6 +149,7 @@ class fit(object):
         self.calls = 0
         self.calltime = 0
 
+    @torch.inference_mode()
     def get_residuals(self, param_vec):
         """ Calculate the residuals between the data and model. """
 
@@ -248,9 +247,11 @@ class fit(object):
         r_eff = modelpars[:, 1]
         n = modelpars[:, 2]
         coords = np.array((r_eff, n)).T
+
         oversamp_1 = self.interpolator_1(coords)
         oversamp_2 = self.interpolator_2(coords)
         oversamp_3 = self.interpolator_3(coords)
+
         oversampling = np.maximum(1,
                                   np.round(np.vstack([oversamp_1,
                                                       oversamp_2,
@@ -266,6 +267,7 @@ class fit(object):
     def lnlike(self, param_vec):
         """ Returns the log-likelihood for a given parameter vector. """
 
+        t1 = time.time()
         residuals, sigma = self.get_residuals(param_vec)
 
         if isinstance(residuals, str):
@@ -274,6 +276,11 @@ class fit(object):
         norm = np.log((1/(np.sqrt(2*np.pi*(sigma**2)))))
         log_like_array = norm + ((-(residuals)**2) / (2*(sigma**2)))
         log_like = np.sum(log_like_array)
+
+        self.calls+=1
+        self.calltime+=time.time()-t1
+        if self.calls % 100 == 0:
+            print(self.calltime/self.calls)
 
         return log_like
 
@@ -354,15 +361,15 @@ class fit(object):
                 self.interpolator_1 = RGI((self.r_eff_indices,
                                            self.n_indices),
                                           self.oversamp_tab[0],
-                                          method='cubic')
+                                          method='linear')
                 self.interpolator_2 = RGI((self.r_eff_indices,
                                            self.n_indices),
                                           self.oversamp_tab[1],
-                                          method='cubic')
+                                          method='linear')
                 self.interpolator_3 = RGI((self.r_eff_indices,
                                            self.n_indices),
                                           self.oversamp_tab[2],
-                                          method='cubic')
+                                          method='linear')
 
         # Check if a posterior already exists for the object being fitted
         if os.path.isfile(dir_path+f'/mimical_output/posteriors{self.runtag}' +
