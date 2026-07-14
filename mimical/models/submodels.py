@@ -5,16 +5,17 @@ torch.set_default_dtype(torch.float32)
 class Sersic(object):
     """ Basic Sersic submodel, fully vectorised for coordinate cubes. """
 
-    def __init__(self, parameters=torch.zeros((2, 7))):
+    def __init__(self, parameters=torch.zeros((2, 7)), zp=23.9):
 
-        self.param_names = ['flux', 'r_eff', 'n', 'x_0',
+        self.param_names = ['mag', 'r_eff', 'n', 'x_0',
                             'y_0', 'ellip', 'theta']
+        self.zp = zp
         self.update_parameters(parameters)
 
     def update_parameters(self, parameters):
 
         self.params = parameters
-        self.flux = parameters[:, 0]
+        self.mag = parameters[:, 0]
         self.r_eff = parameters[:, 1]
         self.n = parameters[:, 2]
         self.x_0 = parameters[:, 3]
@@ -46,8 +47,9 @@ class Sersic(object):
         self.b = (1 - self.ellip) * self.r_eff
         self.inv_b = 1 / self.b
 
+        flux_dens = torch.pow(10, (self.zp-self.mag)/2.5)
         # With thanks to Peng et al. 2002, Equation 7
-        self.amplitude = self.flux / (2 * torch.pi * (self.r_eff.square()) *
+        self.amplitude = flux_dens / (2 * torch.pi * (self.r_eff.square()) *
                                       torch.exp(self.bn +
                                                 torch.special.gammaln(2 *
                                                                       self.n))

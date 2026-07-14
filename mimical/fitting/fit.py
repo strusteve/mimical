@@ -78,7 +78,7 @@ class fit(object):
 
     def __init__(self, id, images, filt_list, psfs, mimical_prior,
                  submodel=Sersic, se_clean=False, se_maxdist='default',
-                 dilute=True, dilute_radius=5, runtag=''):
+                 dilute=True, dilute_radius=5, runtag='', zp=23.9):
 
         # Set positional arguments
         self.id = id
@@ -144,6 +144,8 @@ class fit(object):
                     self.mimical_keys.append(f"{key}:{subkey}")
             else:
                 self.mimical_keys.append(key)
+
+        self.zp = zp
 
         # Code-timing interface
         self.calls = 0
@@ -333,7 +335,7 @@ class fit(object):
                                      device=self.accel)
         else:
             psf_accel = self.psfs
-        submodels = [self.submodel() for i in
+        submodels = [self.submodel(zp=self.zp) for i in
                      range(len(self.phandler.nsources))]
         self.image_models = ImageModel(torch.arange(self.images.shape[2],
                                                     device=self.accel),
