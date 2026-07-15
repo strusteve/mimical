@@ -213,8 +213,9 @@ class fit(object):
         if isinstance(self.oversample, str):
             if self.oversample == 'auto':
                 autosamp, autorad = self.automatic_oversampling(modelpars)
-                self.image_models.update_oversampling(oversample=autosamp,
-                                                      oversample_radii=autorad)
+                self.image_models.update_oversampling(oversample=autosamp, oversample_radii=autorad)
+                #self.image_models.update_oversampling(oversample=30, oversample_bl=30)
+
 
         # Discretize model to grid
         model = self.image_models.render().cpu().numpy()
@@ -283,6 +284,7 @@ class fit(object):
         self.calltime += time.time()-t1
         if self.calls % 100 == 0:
             print(self.calltime/self.calls)
+    
 
         return log_like
 

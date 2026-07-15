@@ -3,6 +3,7 @@ import time
 import torch
 import warnings
 import matplotlib.pyplot as plt
+import gc
 # Filter out the specific dynamic resize warning
 warnings.filterwarnings(
     "ignore",
@@ -72,6 +73,7 @@ class ImageModel(object):
 
         self.rot = Rotator(device=self.x.device)
 
+
     def update_parameters(self, submodel_params, psf_pa):
         """ Update the submodel parameters and psf position angles. """
 
@@ -138,6 +140,7 @@ class ImageModel(object):
         if self.x.device.type == "cuda":
             torch.cuda.empty_cache()
         elif self.x.device.type == "mps":
+            torch.mps.synchronize()
             torch.mps.empty_cache()
 
         return out
@@ -145,8 +148,6 @@ class ImageModel(object):
     def evaluate_over_grid(self, model, oversample, oversample_bl,
                            oversample_radii):
         """ Evaluate submodel over the pixel grid. """
-
-        model.evaluate = torch.compile(model.evaluate)
 
         # If no oversampling specified
         if oversample is None:
@@ -211,11 +212,9 @@ class ImageModel(object):
     def window_oversampling(self, model, oversample, oversample_bl):
         """ Oversampled a centred window of length 'oversample_bl'. """
 
-        model_image = torch.zeros(
-            (model.params.shape[0], *self.base_xgrid.shape),
-            device=self.base_xgrid.device,
-            dtype=torch.float32,
-        )
+        model_image = torch.zeros((model.params.shape[0], *self.base_xgrid.shape),
+                                   device=self.base_xgrid.device,
+                                   dtype=torch.float32)
 
         # Inside box
         curr_mask = self.base_xgrid != self.base_xgrid
@@ -227,10 +226,9 @@ class ImageModel(object):
         oversample_shift = (torch.arange(oversample, device=self.x.device) -
                             ((oversample-1) / 2)) * (1 / oversample)
 
-        shift_x, shift_y = torch.meshgrid(
-            oversample_shift,
-            oversample_shift,
-            indexing="xy")
+        shift_x, shift_y = torch.meshgrid(oversample_shift,
+                                          oversample_shift,
+                                          indexing="xy")
 
         xgrid = self.base_xgrid[curr_mask]
         ygrid = self.base_ygrid[curr_mask]
@@ -256,7 +254,7 @@ class ImageModel(object):
         ygrid = ygrid.unsqueeze(0).expand(model.params.shape[0], -1, -1)
         evaluation = model.evaluate(xgrid, ygrid).squeeze(-1)
         model_image[:, ~curr_mask] = evaluation
-
+        
         return model_image
 
     def annuli_oversampling(self, model, oversample, oversample_radii):
