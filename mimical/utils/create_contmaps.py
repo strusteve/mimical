@@ -17,25 +17,13 @@ def create_contmaps(id, wavs, images, filter_names, segmaps_empty,
 
     contmaps = segmaps_empty.copy()
 
-    # Make output directories for sextractor output
-    if not os.path.isdir(dir_path +
-                         "/mimical_output/sextractor"):
-        os.system('mkdir ' + dir_path +
-                  "/mimical_output/sextractor")
-        os.system('mkdir ' + dir_path +
-                  "/mimical_output/sextractor/input_images")
-        os.system('mkdir ' + dir_path +
-                  "/mimical_output/sextractor/cats")
-        os.system('mkdir ' + dir_path +
-                  "/mimical_output/sextractor/segmaps")
-
     if not os.path.isdir(dir_path +
                          f"/mimical_output/sextractor/cats{runtag}"):
-        os.system('mkdir ' + dir_path +
+        os.system('mkdir -p ' + dir_path +
                   f"/mimical_output/sextractor/input_images{runtag}")
-        os.system('mkdir ' + dir_path +
+        os.system('mkdir -p ' + dir_path +
                   f"/mimical_output/sextractor/cats{runtag}")
-        os.system('mkdir ' + dir_path +
+        os.system('mkdir -p ' + dir_path +
                   f"/mimical_output/sextractor/segmaps{runtag}")
 
     # Save images passed to Mimical for passing to Sextractor
@@ -55,7 +43,8 @@ def create_contmaps(id, wavs, images, filter_names, segmaps_empty,
                   f"mimical_output/sextractor/cats{runtag}/{id}_"
                   f"{filter_names[i]}.cat -CHECKIMAGE_NAME {dir_path}/"
                   f"mimical_output/sextractor/segmaps{runtag}/{id}_"
-                  f"{filter_names[i]}.fits")
+                  f"{filter_names[i]}.fits "
+                  "> /dev/null 2>&1")
 
     # Loop over filters, load Sextractor catalogues and segmentation maps,
     # determine any areas of contamination and set them to zero.

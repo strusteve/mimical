@@ -4,14 +4,6 @@ import os
 from .fit import fit
 from ..utils import mpi_split_array
 
-dir_path = os.getcwd()
-if not os.path.isdir(dir_path + "/mimical_output"):
-    os.system('mkdir ' + dir_path + "/mimical_output")
-    os.system('mkdir ' + dir_path + "/mimical_output/plots")
-    os.system('mkdir ' + dir_path + "/mimical_output/posteriors")
-    os.system('mkdir ' + dir_path + "/mimical_output/cats")
-
-
 class fitCatalogue(object):
     """ Fit a catalogue of singly- or multiply-imaged objects with a 2D model
         via Bayesian inference.
@@ -56,14 +48,6 @@ class fitCatalogue(object):
         self.load_mimical_prior = load_mimical_prior
         self.kwargs = kwargs
 
-        # Create sub-directories for specific catalogue runs
-        if not os.path.isdir(dir_path +
-                             f"/mimical_output/posteriors/{self.runtag}"):
-            os.system('mkdir ' + dir_path +
-                      f"/mimical_output/plots/{self.runtag}")
-            os.system('mkdir ' + dir_path +
-                      f"/mimical_output/posteriors/{self.runtag}")
-
     def run(self, mpi_serial=False, make_plots=False, **run_kwargs):
         """ Runs the nested sampler to sample models, and processes its output.
 
@@ -88,7 +72,7 @@ class fitCatalogue(object):
                              runtag="/"+self.runtag, **self.kwargs)
                 single.run(**run_kwargs)
                 if make_plots:
-                    single.plot_model()
+                    single.save_plots()
 
         else:
             id_core = mpi_split_array(np.array((self.id_list)))
@@ -98,4 +82,4 @@ class fitCatalogue(object):
                              runtag="/"+self.runtag, **self.kwargs)
                 single.run(**run_kwargs)
                 if make_plots:
-                    single.plot_model()
+                    single.save_plots()
