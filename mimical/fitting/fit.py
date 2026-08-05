@@ -548,8 +548,8 @@ class fit(object):
         plotting.plot_best(self.images, self.wavs, self.image_models,
                            self.points[np.argmax(self.log_l)],
                            self.phandler, self.filter_names,
-                           self.contmaps, self.oversample,
-                           self.oversample_bl, self.oversample_radii)
+                           self.contmaps, oversample,
+                           self.oversample_bl, oversample_radii)
         plt.savefig(dir_path+f'/mimical_output/plots{self.runtag}/'
                     f'summary_plots/{self.id}_fit_summary.pdf',
                     bbox_inches='tight', dpi=300,
