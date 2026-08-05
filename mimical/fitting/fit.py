@@ -7,6 +7,7 @@ import os
 import pandas as pd
 import torch
 from scipy.interpolate import RegularGridInterpolator as RGI
+from copy import deepcopy
 
 from ..priors.prior_handler import priorHandler
 from ..plotting import plotting
@@ -71,8 +72,8 @@ class fit(object):
     """
 
     def __init__(self, id, images, filt_list, psfs, mimical_prior,
-                 submodel=Sersic, se_clean=False, se_maxdist='default',
-                 dilute=True, dilute_radius=5, runtag='', zp=23.9):
+                 se_clean=False, se_maxdist='default',
+                 dilute=True, dilute_radius=5, runtag=''):
 
         if not os.path.isdir(dir_path + f"/mimical_output/models{runtag}"):
             os.system('mkdir -p ' + dir_path +
@@ -90,10 +91,23 @@ class fit(object):
             self.psfs = np.array((psfs))
         else:
             self.psfs = psfs
-        self.mimical_prior = mimical_prior
+
+        # Get the keys of all Mimical properties per filter
+        self.mimical_prior = deepcopy(mimical_prior)
+        self.mimical_keys = []
+        self.submodels = []
+        for key in mimical_prior.keys():
+            if isinstance(mimical_prior[key], dict):
+                for subkey in mimical_prior[key].keys():
+                    if subkey == 'model':
+                        self.submodels.append(mimical_prior[key][subkey])
+                        del self.mimical_prior[key][subkey]
+                    else:
+                        self.mimical_keys.append(f"{key}:{subkey}")
+            else:
+                self.mimical_keys.append(key)
 
         # Set keyword arguments
-        self.submodel = submodel
         self.se_clean = se_clean
         self.runtag = runtag
 
@@ -101,18 +115,6 @@ class fit(object):
         self.filter_names = [x.split('/')[-1] for x in self.filt_list]
         filt_set = filter_set([dir_path+'/'+x for x in self.filt_list])
         self.wavs = (filt_set.eff_wavs / 1e4)
-
-        """
-        # If single image fit, make mimical prior adequately verbose
-        if len(self.wavs)==1:
-            for i in mimical_prior:
-                if 'source' in i:
-                    for j in mimical_prior[i]:
-                        mimical_prior[i][j] = (mimical_prior[i][j],
-                                               'Individual')
-                else: mimical_prior[i] = (mimical_prior[i],
-                                          'Individual')
-        """
 
         # Set and run SourceExtractor if desired
         self.contmaps = np.ones_like(self.images)
@@ -129,25 +131,14 @@ class fit(object):
                                             self.dilute_radius, self.runtag)
 
         # Initiate the prior handler object, used to parse and translate priors
-        self.phandler = priorHandler(mimical_prior, self.filter_names,
+        self.phandler = priorHandler(self.mimical_prior, self.filter_names,
                                      self.wavs, self.images, self.runtag,
                                      self.id)
         self.sampler_prior_keys = self.phandler.keys
-        print(f"Fitting object {self.id} with"
+        print(f"\nFitting object {self.id} with"
               f" -{self.phandler.nsources}- parameter submodels with"
               f" -{self.phandler.nparam}- parameter Mimical fit with "
               f"dimensionality -{self.phandler.ndim}-.")
-
-        # Get the keys of all Mimical properties per filter
-        self.mimical_keys = []
-        for key in self.mimical_prior.keys():
-            if isinstance(self.mimical_prior[key], dict):
-                for subkey in self.mimical_prior[key].keys():
-                    self.mimical_keys.append(f"{key}:{subkey}")
-            else:
-                self.mimical_keys.append(key)
-
-        self.zp = zp
 
         # Code-timing interface
         self.calls = 0
@@ -262,9 +253,10 @@ class fit(object):
 
         return log_like
 
-    def run(self, n_live=400, pool=None, oversample=None,
+    def run(self, n_live=1000, pool=None, oversample=None,
             oversample_bl=None, oversample_radii=None,
-            gpu_acceleration=False, verbose_sampler=True, timeout=30):
+            gpu_acceleration=False, verbose_sampler=True,
+            timeout=np.inf):
         """ Run the sampler and save results.
 
         Parameters
@@ -311,13 +303,12 @@ class fit(object):
                                      device=self.accel)
         else:
             psf_accel = self.psfs
-        submodels = [self.submodel(zp=self.zp) for i in
-                     range(len(self.phandler.nsources))]
+
         self.image_models = ImageModel(torch.arange(self.images.shape[2],
                                                     device=self.accel),
                                        torch.arange(self.images.shape[1],
                                                     device=self.accel),
-                                       submodels,
+                                       self.submodels,
                                        psf=psf_accel,
                                        psf_pa=np.zeros(len(self.wavs)),
                                        oversample=self.oversample,
@@ -339,15 +330,15 @@ class fit(object):
                 self.interpolator_1 = RGI((self.r_eff_indices,
                                            self.n_indices),
                                           self.oversamp_tab[0],
-                                          method='linear')
+                                          method='cubic')
                 self.interpolator_2 = RGI((self.r_eff_indices,
                                            self.n_indices),
                                           self.oversamp_tab[1],
-                                          method='linear')
+                                          method='cubic')
                 self.interpolator_3 = RGI((self.r_eff_indices,
                                            self.n_indices),
                                           self.oversamp_tab[2],
-                                          method='linear')
+                                          method='cubic')
 
         # Check if a posterior already exists for the object being fitted
         if os.path.isfile(dir_path+f'/mimical_output/posteriors{self.runtag}' +
@@ -388,6 +379,11 @@ class fit(object):
     def automatic_oversampling(self, modelpars):
         """ Function to determine bets oversampling properties
         for Sersic fits. """
+
+        if not isinstance(self.submodels[0], Sersic):
+            raise Exception("To use automatic oversampling,"
+                            " the primary source should be a"
+                            "a Sersic profile.")
 
         r_eff = modelpars[:, 1]
         n = modelpars[:, 2]
@@ -510,7 +506,7 @@ class fit(object):
             np.savetxt(dir_path+f'/mimical_output/models{self.runtag}/' +
                        f'{self.id}_best_model.txt', best_models[i])
 
-        print("Done.\n")
+        print("Done.")
 
     def save_plots(self):
         """ Wrapper to plot output. """
@@ -545,15 +541,15 @@ class fit(object):
                 modelpars = self.phandler.revert(bestsamp)
                 res = self.automatic_oversampling(modelpars)
                 oversample, oversample_radii = res
-            else:
-                oversample = self.oversample
-                oversample_radii = self.oversample_radii
+        else:
+            oversample = self.oversample
+            oversample_radii = self.oversample_radii
 
         plotting.plot_best(self.images, self.wavs, self.image_models,
                            self.points[np.argmax(self.log_l)],
                            self.phandler, self.filter_names,
-                           self.contmaps, oversample,
-                           self.oversample_bl, oversample_radii)
+                           self.contmaps, self.oversample,
+                           self.oversample_bl, self.oversample_radii)
         plt.savefig(dir_path+f'/mimical_output/plots{self.runtag}/'
                     f'summary_plots/{self.id}_fit_summary.pdf',
                     bbox_inches='tight', dpi=300,

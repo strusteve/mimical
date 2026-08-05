@@ -1,7 +1,7 @@
 **Mimical** (**M**\odelling the **I**\ntensity of **M**\ultiply-**I**\maged **C**\elesti\ **A**\l **L**\ight)
 
 
-Mimical is an intensity modelling code optimised for multiply-imaged objects (image cubes), performing simultaneous Bayseian inference of model parameters via the nested sampling algorithm. Mimical currently uses a built-in Sersic submodel, but users can easily bolt-on any other 2D submodel. Since every new filter introduces new submodel free parameters, Mimical supports the assumption of a user defined polynomial or power-law dependency with image wavelength, automatically sampling their coefficients over the allowed parameter region. Additionally, with support for CPU parallelisation via MPI and GPU acceleration via PyTorch, Mimical has significant computational flexibility, allowing users to tune their settings based on available hardware.
+Mimical is an intensity modelling code optimised for multiply-imaged objects (image cubes), performing simultaneous Bayseian inference of model parameters via the nested sampling algorithm. Mimical currently supports Sersic and Point-source submodels, but users can easily bolt-on any other 2D submodel. Since every new filter introduces new submodel free parameters, Mimical supports the assumption of a user defined polynomial or power-law dependency with image wavelength, automatically sampling their coefficients over the allowed parameter region. Additionally, with support for CPU parallelisation via MPI and GPU acceleration via PyTorch, Mimical has significant computational flexibility, allowing users to tune their settings based on available hardware.
 
 
 **Installation**
@@ -31,7 +31,8 @@ Below is an example ``mimical_prior`` for a run using the default Sersic submode
 .. code::
      
      source_1 = {}
-     source_1['amplitude'] = ((0, 1), 'Individual')
+     source_1['model'] = mimical.Sersic()
+     source_1['mag'] = ((0, 1), 'Individual')
      source_1['r_eff'] = ((0, 50), 'Polynomial', 1)
      source_1['n'] = ((0.1, 10), 'Polynomial', 1)
      source_1['x_0'] = ((48, 52), 'Polynomial', 0)
@@ -52,12 +53,9 @@ Similarly for ``counts_per_flux``, which allows Mimical to associate poisson unc
 
 **Optional input and parameters**
 
-* ``submodel`` : 2D submodel used to model the underlying intensity profile(s) (Upcoming version will allow multiple submodel types in the same fit).
 * ``se_clean`` : Whether or not to let SourceExtractor clean the input images of contaminants. Must allow 'sex' command via terminal.
 * ``se_maxdist`` : The distance after which the closest detected source is considered a contaminant. Necessary for images in which the target is undetected.
-
 * ``dilute`` : Whether or not to apply a circular miminum filter over the contamination map to dilute it.
-
 * ``dilute_radius`` : If dilute is ``True``, apply minimim filter with radius ``dilute_radius`` over the contamination map.
 
 

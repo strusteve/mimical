@@ -76,3 +76,31 @@ class Sersic(object):
                                       self.inv_n[:, None, None]) - 1)))
 
         return final
+
+
+class Point(object):
+    """ Basic point-source (pixel-size) submodel, fully vectorised for coordinate cubes. """
+
+    def __init__(self, parameters=torch.zeros((2, 3)), zp=23.9):
+
+        self.param_names = ['mag', 'x_0', 'y_0']
+        self.zp = zp
+        self.update_parameters(parameters)
+
+    def update_parameters(self, parameters):
+
+        self.params = parameters
+        self.mag = parameters[:, 0]
+        self.x_0 = parameters[:, 1]
+        self.y_0 = parameters[:, 2]
+
+        self.flux_dens = torch.pow(10, (self.zp-self.mag)/2.5)
+
+    def evaluate(self, x, y):
+
+        dx = (x - self.x_0[:, None, None]).square()
+        dy = (y - self.y_0[:, None, None]).square()
+
+        final = ((dx < 0.25) & (dy < 0.25))*self.flux_dens
+
+        return final
