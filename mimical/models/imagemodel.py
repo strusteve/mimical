@@ -73,7 +73,6 @@ class ImageModel(object):
 
         self.rot = Rotator(device=self.x.device)
 
-
     def update_parameters(self, submodel_params, psf_pa):
         """ Update the submodel parameters and psf position angles. """
 
@@ -212,9 +211,10 @@ class ImageModel(object):
     def window_oversampling(self, model, oversample, oversample_bl):
         """ Oversampled a centred window of length 'oversample_bl'. """
 
-        model_image = torch.zeros((model.params.shape[0], *self.base_xgrid.shape),
-                                   device=self.base_xgrid.device,
-                                   dtype=torch.float32)
+        model_image = torch.zeros((model.params.shape[0],
+                                   *self.base_xgrid.shape),
+                                  device=self.base_xgrid.device,
+                                  dtype=torch.float32)
 
         # Inside box
         curr_mask = self.base_xgrid != self.base_xgrid
@@ -254,7 +254,7 @@ class ImageModel(object):
         ygrid = ygrid.unsqueeze(0).expand(model.params.shape[0], -1, -1)
         evaluation = model.evaluate(xgrid, ygrid).squeeze(-1)
         model_image[:, ~curr_mask] = evaluation
-        
+
         return model_image
 
     def annuli_oversampling(self, model, oversample, oversample_radii):

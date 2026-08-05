@@ -4,6 +4,7 @@ import os
 from .fit import fit
 from ..utils import mpi_split_array
 
+
 class fitCatalogue(object):
     """ Fit a catalogue of singly- or multiply-imaged objects with a 2D model
         via Bayesian inference.

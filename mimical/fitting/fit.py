@@ -75,9 +75,12 @@ class fit(object):
                  dilute=True, dilute_radius=5, runtag='', zp=23.9):
 
         if not os.path.isdir(dir_path + f"/mimical_output/models{runtag}"):
-            os.system('mkdir -p ' + dir_path + f"/mimical_output/cats")
-            os.system('mkdir -p ' + dir_path + f"/mimical_output/models{runtag}")
-            os.system('mkdir -p ' + dir_path + f"/mimical_output/posteriors{runtag}")
+            os.system('mkdir -p ' + dir_path +
+                      f"/mimical_output/cats")
+            os.system('mkdir -p ' + dir_path +
+                      f"/mimical_output/models{runtag}")
+            os.system('mkdir -p ' + dir_path +
+                      f"/mimical_output/posteriors{runtag}")
 
         # Set positional arguments
         self.id = id
@@ -114,7 +117,7 @@ class fit(object):
         # Set and run SourceExtractor if desired
         self.contmaps = np.ones_like(self.images)
         if se_maxdist == 'default':
-            self.se_maxdist = 20
+            self.se_maxdist = 30
         else:
             self.se_maxdist = se_maxdist
         self.dilute = dilute
@@ -212,9 +215,8 @@ class fit(object):
         if isinstance(self.oversample, str):
             if self.oversample == 'auto':
                 autosamp, autorad = self.automatic_oversampling(modelpars)
-                self.image_models.update_oversampling(oversample=autosamp, oversample_radii=autorad)
-                #self.image_models.update_oversampling(oversample=30, oversample_bl=30)
-
+                self.image_models.update_oversampling(oversample=autosamp,
+                                                      oversample_radii=autorad)
 
         # Discretize model to grid
         model = self.image_models.render().cpu().numpy()
@@ -257,14 +259,12 @@ class fit(object):
 
         self.calls += 1
         self.calltime += time.time()-t1
-        #if self.calls % 100 == 0:
-            #print(self.calltime/self.calls)
-    
+
         return log_like
 
     def run(self, n_live=400, pool=None, oversample=None,
             oversample_bl=None, oversample_radii=None,
-            gpu_acceleration=False, verbose_sampler=True):
+            gpu_acceleration=False, verbose_sampler=True, timeout=30):
         """ Run the sampler and save results.
 
         Parameters
@@ -352,24 +352,27 @@ class fit(object):
         # Check if a posterior already exists for the object being fitted
         if os.path.isfile(dir_path+f'/mimical_output/posteriors{self.runtag}' +
                           f'/{self.id}.txt'):
-            print(f"Loading existing posterior at " + dir_path + 
-                  f'/mimical_output/posteriors{self.runtag}' + f'/{self.id}.txt')
-            posterior = np.loadtxt(dir_path+f'/mimical_output/posteriors{self.runtag}' +
-                                   f'/{self.id}.txt', dtype=np.float32)
-            self.points = posterior[:,:-2]
-            self.log_l = posterior[:,-2]
-            self.log_w = posterior[:,-1]
+            print(f"Loading existing posterior at " + dir_path +
+                  f'/mimical_output/posteriors{self.runtag}/{self.id}.txt')
+            posterior = np.loadtxt(dir_path+f'/mimical_output/posteriors'
+                                   f'{self.runtag}/{self.id}.txt',
+                                   dtype=np.float32)
+            self.points = posterior[:, :-3]
+            self.log_l = posterior[:, -3]
+            self.log_w = posterior[:, -2]
+            self.success = bool(posterior[:, -1][0])
             self.save_output()
 
         else:
             # Set the sampler prior
-            t0 = time.time()
             sampler = Sampler(self.phandler.sampler_prior, self.lnlike,
                               n_live=n_live, pool=pool,
                               n_dim=self.phandler.ndim)
-            sampler.run(verbose=verbose_sampler)
-            self.sampling_time = (time.time()-t0)/60
-            print(f"Sampling time (minutes): {self.sampling_time}")
+            t0 = time.time()
+            self.success = sampler.run(verbose=verbose_sampler,
+                                       timeout=timeout * 60)
+            sampling_time = (time.time()-t0)/60
+            print(f"Sampling time (minutes): {sampling_time}")
             self.points, self.log_w, self.log_l = sampler.posterior()
             self.save_output()
 
@@ -410,7 +413,8 @@ class fit(object):
         """ Saves the percentiles of user parameters for each filter. """
 
         # Save the sampled points and corresponding log-weights
-        posterior = np.c_[self.points, self.log_l, self.log_w]
+        posterior = np.c_[self.points, self.log_l, self.log_w,
+                          [int(self.success)]*len(self.log_w)]
         np.savetxt(dir_path + f'/mimical_output/posteriors{self.runtag}/' +
                    f'{self.id}.txt', posterior)
 
@@ -432,6 +436,7 @@ class fit(object):
         dic['chisq'] = chisq
         dic['numd'] = numd
         dic['red_chisq'] = chisq / (numd-self.phandler.ndim)
+        dic['success'] = self.success
         df1 = pd.DataFrame(dic)
 
         # Save per filter values
@@ -451,13 +456,16 @@ class fit(object):
         dic['chisq'] = chisq
         dic['numd'] = numd
         dic['red_chisq'] = chisq / (numd-self.phandler.ndim)
+        dic['success'] = self.success
         df2 = pd.DataFrame(dic)
 
         # If not part of a catalogue fit, save individual
         if self.runtag == '':
-            df1.to_csv(dir_path+f'/mimical_output/cats/{self.id}.csv', index=False)
-            if len(self.wavs)>1:
-                df2.to_csv(dir_path+f'/mimical_output/cats/{self.id}_perfilter.csv', index=False)
+            df1.to_csv(dir_path+f'/mimical_output/cats/{self.id}.csv',
+                       index=False)
+            if len(self.wavs) > 1:
+                df2.to_csv(dir_path+'/mimical_output/cats/'
+                           f'{self.id}_perfilter.csv', index=False)
 
         # If part of a catalogue fit, append to it.
         else:
@@ -465,27 +473,27 @@ class fit(object):
                                   f'cats{self.runtag}.csv'):
                 df1.to_csv(dir_path+f'/mimical_output/cats{self.runtag}'
                            '.csv', index=False)
-                if len(self.wavs)>1:
+                if len(self.wavs) > 1:
                     df2.to_csv(dir_path+f'/mimical_output/cats{self.runtag}'
-                            '_perfilter.csv', index=False)
+                               '_perfilter.csv', index=False)
             else:
                 ridden1 = pd.read_csv(dir_path+f'/mimical_output/' +
                                       f'cats/{self.runtag}.csv')
-                if len(self.wavs)>1:
-                    ridden2 = pd.read_csv(dir_path+f'/mimical_output/' +
-                                        f'cats/{self.runtag}_perfilter.csv')
+                if len(self.wavs) > 1:
+                    ridden2 = pd.read_csv(dir_path+f'/mimical_output/'
+                                          f'cats/{self.runtag}_perfilter.csv')
                 ridden1.index = ridden1['id'].values.astype('str')
                 if self.id not in ridden1.index.values:
                     ridden1.loc[self.id] = df1.values[0]
-                    if len(self.wavs)>1:
+                    if len(self.wavs) > 1:
                         ridden2.loc[self.id] = df2.values[0]
                     ridden1.to_csv(dir_path+f'/mimical_output/' +
                                    f'cats/{self.runtag}.csv',
                                    index=False)
-                    if len(self.wavs)>1:
-                        ridden2.to_csv(dir_path+f'/mimical_output/' +
-                                    f'cats/{self.runtag}_perfilter.csv',
-                                    index=False)
+                    if len(self.wavs) > 1:
+                        ridden2.to_csv(dir_path+f'/mimical_output/'
+                                       f'cats/{self.runtag}_perfilter.csv',
+                                       index=False)
 
         # Save best model image for each filter
         param_vec = self.phandler.revert(self.points[np.argmax(self.log_l)])
@@ -502,26 +510,34 @@ class fit(object):
             np.savetxt(dir_path+f'/mimical_output/models{self.runtag}/' +
                        f'{self.id}_best_model.txt', best_models[i])
 
-        print("\n")
-
+        print("Done.\n")
 
     def save_plots(self):
         """ Wrapper to plot output. """
 
         if not os.path.isdir(dir_path + f"/mimical_output/plots{self.runtag}"):
-            os.system('mkdir -p ' + dir_path + f"/mimical_output/plots{self.runtag}/summary_plots")
-            os.system('mkdir -p ' + dir_path + f"/mimical_output/plots{self.runtag}/corner_plots")
-            os.system('mkdir -p ' + dir_path + f"/mimical_output/plots{self.runtag}/error_plots")
+            os.system('mkdir -p ' + dir_path + "/mimical_output/plots"
+                      f"{self.runtag}/summary_plots")
+            os.system('mkdir -p ' + dir_path + "/mimical_output/plots"
+                      f"{self.runtag}/corner_plots")
+            os.system('mkdir -p ' + dir_path + "/mimical_output/plots"
+                      f"{self.runtag}/error_plots")
 
         # Plot and save the corner plot
         mask = self.phandler.smask
+        if self.success:
+            range = np.repeat(0.999, np.sum(mask))
+        else:
+            range = None
         corner.corner(self.points.T[mask].T, weights=np.exp(self.log_w),
                       bins=20, labels=np.array(self.sampler_prior_keys)[mask],
                       color='black', plot_datapoints=False,
-                      range=np.repeat(0.999, np.sum(mask)))
-        plt.savefig(dir_path+f'/mimical_output/plots{self.runtag}/corner_plots/' +
-                    f'{self.id}_corner.pdf', bbox_inches='tight')
-        
+                      range=range)
+        plt.savefig(dir_path+f'/mimical_output/plots{self.runtag}/'
+                    f'corner_plots/{self.id}_corner.pdf',
+                    bbox_inches='tight',
+                    transparent=True)
+
         # Plot and save the maxL fit
         if isinstance(self.oversample, str):
             if self.oversample == 'auto':
@@ -538,16 +554,18 @@ class fit(object):
                            self.phandler, self.filter_names,
                            self.contmaps, oversample,
                            self.oversample_bl, oversample_radii)
-        plt.savefig(dir_path+f'/mimical_output/plots{self.runtag}/summary_plots/' +
-                    f'{self.id}_fit_summary.pdf', bbox_inches='tight', dpi=500,
+        plt.savefig(dir_path+f'/mimical_output/plots{self.runtag}/'
+                    f'summary_plots/{self.id}_fit_summary.pdf',
+                    bbox_inches='tight', dpi=300,
                     transparent=True)
 
         # Plot the trends with wavelength if multiband fit
         if len(self.wavs) > 1:
             plotting.plot_trends(self.wavs, self.samples, self.mimical_prior,
                                  self.phandler, self.mimical_keys)
-            plt.savefig(dir_path+f'/mimical_output/plots{self.runtag}/trend_plots/' +
-                        f'{self.id}_trends.pdf', bbox_inches='tight', dpi=500,
+            plt.savefig(dir_path+f'/mimical_output/plots{self.runtag}/'
+                        f'trend_plots/{self.id}_trends.pdf',
+                        bbox_inches='tight',
                         transparent=True)
 
         # Plot the errors used in fitting
@@ -556,8 +574,9 @@ class fit(object):
                              self.points[np.argmax(self.log_l)],
                              self.phandler, self.filter_names,
                              self.contmaps)
-        plt.savefig(dir_path+f'/mimical_output/plots{self.runtag}/error_plots/' +
-                    f'{self.id}_errors.pdf', bbox_inches='tight', dpi=500,
+        plt.savefig(dir_path+f'/mimical_output/plots{self.runtag}/'
+                    f'error_plots/{self.id}_errors.pdf',
+                    bbox_inches='tight', dpi=300,
                     transparent=True)
 
         plt.close('all')

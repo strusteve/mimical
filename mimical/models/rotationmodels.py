@@ -211,10 +211,11 @@ class Rotator(object):
         """
         Fully vectorised image-cube rotation function that rotates via a matrix
         then performs grid sampling using sub-functions to find the summing
-        weights (overlap areas) of the nine origin pixels describing the rotated
-        pixels local region. This can be done apporximately (but quickly) using
-        the intersection of unit-area circles, or exactly (but slower) using the
-        intersection of square pixel overlaps (using a neural network).
+        weights (overlap areas) of the nine origin pixels describing the
+        rotated pixels local region. This can be done apporximately
+        (but quickly) using the intersection of unit-area circles, or exactly
+        (but slower) using the intersection of square pixel overlaps (using a
+        neural network).
         """
 
         if (base_x is None) & (base_y is None):
