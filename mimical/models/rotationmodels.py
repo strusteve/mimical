@@ -3,7 +3,7 @@ from ..utils import SquareIntersectionPredictor
 from ..utils import make_nn
 import torch
 import os
-import torch.nn.functional as F
+import torch.nn.functional as Fnn
 
 install_dir = os.path.dirname(os.path.realpath(__file__))
 netdir = (install_dir + "/utils/neural_networks").replace("/models", "")
@@ -41,10 +41,9 @@ class Rotator(object):
 
         images4 = images.unsqueeze(1)  # (N,1,H,W)
 
-        theta = torch.zeros(
-            (N, 2, 3),
-            device=images.device,
-            dtype=images.dtype)
+        theta = torch.zeros((N, 2, 3),
+                            device=images.device,
+                            dtype=images.dtype)
 
         # Build affine-rotation matrix
         theta[:, 0, 0] = torch.cos(torch.deg2rad(angles))
@@ -53,12 +52,12 @@ class Rotator(object):
         theta[:, 1, 1] = torch.cos(torch.deg2rad(angles))
 
         # Compute pytorch flowfield grid
-        grid = F.affine_grid(theta,
+        grid = Fnn.affine_grid(theta,
                              images4.shape,
                              align_corners=False)
 
         # Sample pytorch flowfield grid
-        rotated = F.grid_sample(images4,
+        rotated = Fnn.grid_sample(images4,
                                 grid,
                                 mode="bilinear",
                                 padding_mode="zeros",

@@ -48,7 +48,7 @@ class ImageModel(object):
     """
 
     def __init__(self, x, y, submodels, psf, psf_pa, oversample=None,
-                 oversample_bl=None, oversample_radii=None):
+                 oversample_bl=None, oversample_radii=None, sizes=None):
 
         self.x = x
         self.y = y

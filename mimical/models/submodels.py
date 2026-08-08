@@ -56,6 +56,7 @@ class Sersic(object):
                                       * self.n * (self.bn**(-2*self.n)) *
                                       (1.-self.ellip))
 
+
     def evaluate(self, x, y):
 
         dx = x - self.x_0[:, None, None]
@@ -91,8 +92,8 @@ class Point(object):
 
         self.params = parameters
         self.mag = parameters[:, 0]
-        self.x_0 = parameters[:, 1]
-        self.y_0 = parameters[:, 2]
+        self.x_0 = torch.round(parameters[:, 1])
+        self.y_0 = torch.round(parameters[:, 2])
 
         self.flux_dens = torch.pow(10, (self.zp-self.mag)/2.5)
 

@@ -88,7 +88,7 @@ class fit(object):
         self.images = np.array((images))
         self.filt_list = filt_list
         if psfs is not None:
-            self.psfs = np.array((psfs))
+            self.psfs = np.array(([psfi/np.sum(psfi) for psfi in psfs]))
         else:
             self.psfs = psfs
 
