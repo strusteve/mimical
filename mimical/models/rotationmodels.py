@@ -37,11 +37,9 @@ class Rotator(object):
         classic interpolation method.
         """
 
-        N, H, W = images.shape
+        images4 = images.unsqueeze(1)
 
-        images4 = images.unsqueeze(1)  # (N,1,H,W)
-
-        theta = torch.zeros((N, 2, 3),
+        theta = torch.zeros((images.shape[0], 2, 3),
                             device=images.device,
                             dtype=images.dtype)
 
@@ -53,15 +51,15 @@ class Rotator(object):
 
         # Compute pytorch flowfield grid
         grid = Fnn.affine_grid(theta,
-                             images4.shape,
-                             align_corners=False)
+                               images4.shape,
+                               align_corners=False)
 
         # Sample pytorch flowfield grid
         rotated = Fnn.grid_sample(images4,
-                                grid,
-                                mode="bilinear",
-                                padding_mode="zeros",
-                                align_corners=False)
+                                  grid,
+                                  mode="bilinear",
+                                  padding_mode="zeros",
+                                  align_corners=False)
 
         return rotated[:, 0]
 

@@ -56,7 +56,6 @@ class Sersic(object):
                                       * self.n * (self.bn**(-2*self.n)) *
                                       (1.-self.ellip))
 
-
     def evaluate(self, x, y):
 
         dx = x - self.x_0[:, None, None]
@@ -80,7 +79,8 @@ class Sersic(object):
 
 
 class Point(object):
-    """ Basic point-source (pixel-size) submodel, fully vectorised for coordinate cubes. """
+    """ Basic point-source (pixel-size) submodel, fully vectorised for
+    coordinate cubes. """
 
     def __init__(self, parameters=torch.zeros((2, 3)), zp=23.9):
 
