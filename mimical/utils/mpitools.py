@@ -45,7 +45,7 @@ def mpi_split_array(array):
     else:
         core_array = array
 
-    return core_array
+    return core_array, rank
 
 
 def mpi_combine_array(core_array, total_len):

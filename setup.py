@@ -10,7 +10,7 @@ with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
 setup(
     name='mimical',
 
-    version='0.4.9',
+    version='0.5.1',
 
     description='Intensity modelling for multiply-imaged objects',
 
@@ -26,7 +26,7 @@ setup(
 
     install_requires=["numpy", "torch", "torchvision", "cmcrameri", "astropy",
                       "scipy", "matplotlib", "nautilus-sampler", "pandas",
-                      "corner", "tqdm", "photutils"],
+                      "corner", "tqdm", "photutils", "shapely"],
 
     project_urls={
         "GitHub": "https://github.com/strusteve/mimical"

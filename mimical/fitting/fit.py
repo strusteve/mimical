@@ -73,7 +73,7 @@ class fit(object):
 
     def __init__(self, id, images, filt_list, psfs, mimical_prior,
                  se_clean=False, se_maxdist='default',
-                 dilute=True, dilute_radius=5, runtag=''):
+                 dilute=True, dilute_radius=5, runtag='', rank=''):
 
         if not os.path.isdir(dir_path + f"/mimical_output/models{runtag}"):
             os.system('mkdir -p ' + dir_path +
@@ -143,6 +143,8 @@ class fit(object):
         # Code-timing interface
         self.calls = 0
         self.calltime = 0
+
+        self.rank = rank
 
     @torch.inference_mode()
     def get_residuals(self, param_vec):
@@ -466,29 +468,29 @@ class fit(object):
         # If part of a catalogue fit, append to it.
         else:
             if not os.path.isfile(dir_path + f'/mimical_output/' +
-                                  f'cats{self.runtag}.csv'):
-                df1.to_csv(dir_path+f'/mimical_output/cats{self.runtag}'
+                                  f'cats{self.runtag}{self.rank}.csv'):
+                df1.to_csv(dir_path+f'/mimical_output/cats{self.runtag}{self.rank}'
                            '.csv', index=False)
                 if len(self.wavs) > 1:
-                    df2.to_csv(dir_path+f'/mimical_output/cats{self.runtag}'
+                    df2.to_csv(dir_path+f'/mimical_output/cats{self.runtag}{self.rank}'
                                '_perfilter.csv', index=False)
             else:
                 ridden1 = pd.read_csv(dir_path+f'/mimical_output/' +
-                                      f'cats/{self.runtag}.csv')
+                                      f'cats/{self.runtag}{self.rank}.csv')
                 if len(self.wavs) > 1:
                     ridden2 = pd.read_csv(dir_path+f'/mimical_output/'
-                                          f'cats/{self.runtag}_perfilter.csv')
+                                          f'cats/{self.runtag}{self.rank}_perfilter.csv')
                 ridden1.index = ridden1['id'].values.astype('str')
                 if self.id not in ridden1.index.values:
                     ridden1.loc[self.id] = df1.values[0]
                     if len(self.wavs) > 1:
                         ridden2.loc[self.id] = df2.values[0]
                     ridden1.to_csv(dir_path+f'/mimical_output/' +
-                                   f'cats/{self.runtag}.csv',
+                                   f'cats/{self.runtag}{self.rank}.csv',
                                    index=False)
                     if len(self.wavs) > 1:
                         ridden2.to_csv(dir_path+f'/mimical_output/'
-                                       f'cats/{self.runtag}_perfilter.csv',
+                                       f'cats/{self.runtag}{self.rank}_perfilter.csv',
                                        index=False)
 
         # Save best model image for each filter

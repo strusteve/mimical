@@ -76,11 +76,11 @@ class fitCatalogue(object):
                     single.save_plots()
 
         else:
-            id_core = mpi_split_array(np.array((self.id_list)))
+            id_core, rank = mpi_split_array(np.array((self.id_list)))
             for id in id_core:
                 single = fit(id, self.load_images(id), self.load_filt_list(id),
                              self.load_psfs(id), self.load_mimical_prior(id),
-                             runtag="/"+self.runtag, **self.kwargs)
+                             runtag="/"+self.runtag, rank=f'_core{rank}', **self.kwargs)
                 single.run(**run_kwargs)
                 if make_plots:
                     single.save_plots()
