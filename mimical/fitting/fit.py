@@ -343,20 +343,19 @@ class fit(object):
                                           method='cubic')
 
         # Check if a posterior already exists for the object being fitted
-        if os.path.isfile(dir_path+f'/mimical_output/posteriors{self.runtag}' +
-                          f'/{self.id}.txt'):
-            print(f"Loading existing posterior at " + dir_path +
-                  f'/mimical_output/posteriors{self.runtag}/{self.id}.txt')
+        try:
             posterior = np.loadtxt(dir_path+f'/mimical_output/posteriors'
                                    f'{self.runtag}/{self.id}.txt',
                                    dtype=np.float32)
+            print(f"Loading existing posterior at " + dir_path +
+                  f'/mimical_output/posteriors{self.runtag}/{self.id}.txt')
             self.points = posterior[:, :-3]
             self.log_l = posterior[:, -3]
             self.log_w = posterior[:, -2]
             self.success = bool(posterior[:, -1][0])
             self.save_output()
 
-        else:
+        except:
             # Set the sampler prior
             sampler = Sampler(self.phandler.sampler_prior, self.lnlike,
                               n_live=n_live, pool=pool,
