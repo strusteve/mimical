@@ -31,7 +31,7 @@ class Rotator(object):
 
         self.offsets = torch.stack((offset_x, offset_y), dim=0)
 
-    def interpolation(self, images, angles):
+    def interpolation(self, images, angles, **kwargs):
         """
         Fully vectorised image-cube rotation function based on the
         classic interpolation method.
@@ -306,12 +306,12 @@ class Rotator(object):
 
             dxs = separation_xy[:, 0]
             dys = separation_xy[:, 1]
-
             ths = theta[:, None, None, None, None].expand_as(dxs)
 
             intersecting_area = self.square_predictor.predict(dxs.reshape(-1),
                                                               dys.reshape(-1),
                                                               ths.reshape(-1))
+
             return intersecting_area.reshape(dxs.shape)
 
         if type == 'circle':

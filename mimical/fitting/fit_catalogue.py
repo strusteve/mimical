@@ -80,7 +80,8 @@ class fitCatalogue(object):
             for id in id_core:
                 single = fit(id, self.load_images(id), self.load_filt_list(id),
                              self.load_psfs(id), self.load_mimical_prior(id),
-                             runtag="/"+self.runtag, rank=f'_core{rank}', **self.kwargs)
+                             runtag="/"+self.runtag, rank=f'_core{rank}',
+                             **self.kwargs)
                 single.run(**run_kwargs)
                 if make_plots:
                     single.save_plots()

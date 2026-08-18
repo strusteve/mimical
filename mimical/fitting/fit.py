@@ -8,6 +8,8 @@ import pandas as pd
 import torch
 from scipy.interpolate import RegularGridInterpolator as RGI
 from copy import deepcopy
+from astropy.table import Table
+from astropy.io import fits
 
 from ..priors.prior_handler import priorHandler
 from ..plotting import plotting
@@ -253,12 +255,18 @@ class fit(object):
         self.calls += 1
         self.calltime += time.time()-t1
 
+        '''
+        if self.calls % 100 == 0:
+            print(f"Average call time at {self.calls}:"
+                  f"{self.calltime/self.calls}")
+        '''
+
         return log_like
 
     def run(self, n_live=1000, pool=None, oversample=None,
             oversample_bl=None, oversample_radii=None,
             gpu_acceleration=False, verbose_sampler=True,
-            timeout=np.inf):
+            timeout=np.inf, rotmethod='interpolation'):
         """ Run the sampler and save results.
 
         Parameters
@@ -295,7 +303,12 @@ class fit(object):
         if gpu_acceleration:
             curr_accel = torch.accelerator.current_accelerator()
             is_avail = torch.accelerator.is_available()
-            self.accel = curr_accel if is_avail else torch.device('cpu')
+            if is_avail:
+                print(f"Successfully found GPU at '{curr_accel}'.")
+                self.accel = curr_accel
+            else:
+                print(f"Failed to find GPU, using CPU instead.")
+                self.accel = torch.device('cpu')
         else:
             self.accel = torch.device('cpu')
 
@@ -315,7 +328,8 @@ class fit(object):
                                        psf_pa=np.zeros(len(self.wavs)),
                                        oversample=self.oversample,
                                        oversample_bl=self.oversample_bl,
-                                       oversample_radii=self.oversample_radii)
+                                       oversample_radii=self.oversample_radii,
+                                       rotmethod=rotmethod)
 
         # Load automatic oversampling table if auto
         if isinstance(self.oversample, str):
@@ -344,18 +358,20 @@ class fit(object):
 
         # Check if a posterior already exists for the object being fitted
         try:
-            posterior = np.loadtxt(dir_path+f'/mimical_output/posteriors'
-                                   f'{self.runtag}/{self.id}.txt',
-                                   dtype=np.float32)
-            print(f"Loading existing posterior at " + dir_path +
-                  f'/mimical_output/posteriors{self.runtag}/{self.id}.txt')
-            self.points = posterior[:, :-3]
-            self.log_l = posterior[:, -3]
-            self.log_w = posterior[:, -2]
+            posterior = Table.read(dir_path+f'/mimical_output/posteriors'
+                                   f'{self.runtag}/{self.id}.fits')
+            print(f"Loading existing posterior for object {self.id} at "
+                  + dir_path +
+                  f'/mimical_output/posteriors{self.runtag}/{self.id}.fits')
+            posterior = np.column_stack([posterior[col] for
+                                         col in posterior.colnames]
+                                        ).astype(np.float32)
+            self.samples = posterior[:, :-2]
+            self.log_l = posterior[:, -2]
             self.success = bool(posterior[:, -1][0])
             self.save_output()
 
-        except:
+        except FileNotFoundError, OSError:
             # Set the sampler prior
             sampler = Sampler(self.phandler.sampler_prior, self.lnlike,
                               n_live=n_live, pool=pool,
@@ -364,8 +380,15 @@ class fit(object):
             self.success = sampler.run(verbose=verbose_sampler,
                                        timeout=timeout * 60)
             sampling_time = (time.time()-t0)/60
-            print(f"Sampling time (minutes): {sampling_time}")
-            self.points, self.log_w, self.log_l = sampler.posterior()
+            print(f"Sampling time for object {self.id} (minutes):"
+                  f" {sampling_time}")
+
+            raw_points, raw_log_w, raw_log_l = sampler.posterior()
+            n_post = 10000
+            indices = np.random.choice(np.arange(raw_points.shape[0]),
+                                       size=n_post, p=np.exp(raw_log_w))
+            self.samples = raw_points[indices]
+            self.log_l = raw_log_l[indices]
             self.save_output()
 
     def calc_chisq(self, param_vec):
@@ -410,17 +433,17 @@ class fit(object):
         """ Saves the percentiles of user parameters for each filter. """
 
         # Save the sampled points and corresponding log-weights
-        posterior = np.c_[self.points, self.log_l, self.log_w,
-                          [int(self.success)]*len(self.log_w)]
-        np.savetxt(dir_path + f'/mimical_output/posteriors{self.runtag}/' +
-                   f'{self.id}.txt', posterior)
+        posterior = np.c_[self.samples, self.log_l,
+                          [int(self.success)]*len(self.log_l)]
+        df = pd.DataFrame(posterior,
+                          columns=[*self.sampler_prior_keys,
+                                   'logL', 'success'])
+        Table.from_pandas(df).write(dir_path + f'/mimical_output/posteriors'
+                                    f'{self.runtag}/{self.id}.fits',
+                                    overwrite=True)
 
-        # Sample an appropriately weighted posterior for representative samples
-        n_post = 10000
-        indices = np.random.choice(np.arange(self.points.shape[0]),
-                                   size=n_post, p=np.exp(self.log_w))
-        self.samples = self.points[indices]
-        chisq, numd = self.calc_chisq(self.points[np.argmax(self.log_l)])
+        self.maxL_sample = self.samples[np.argmax(self.log_l)]
+        chisq, numd = self.calc_chisq(self.maxL_sample)
 
         # Save sampler values
         quan = np.percentile(self.samples, q=(16, 50, 84), axis=0)
@@ -468,17 +491,18 @@ class fit(object):
         else:
             if not os.path.isfile(dir_path + f'/mimical_output/' +
                                   f'cats{self.runtag}{self.rank}.csv'):
-                df1.to_csv(dir_path+f'/mimical_output/cats{self.runtag}{self.rank}'
-                           '.csv', index=False)
+                df1.to_csv(dir_path+f'/mimical_output/cats{self.runtag}'
+                           f'{self.rank}.csv', index=False)
                 if len(self.wavs) > 1:
-                    df2.to_csv(dir_path+f'/mimical_output/cats{self.runtag}{self.rank}'
-                               '_perfilter.csv', index=False)
+                    df2.to_csv(dir_path+f'/mimical_output/cats{self.runtag}'
+                               f'{self.rank}_perfilter.csv', index=False)
             else:
                 ridden1 = pd.read_csv(dir_path+f'/mimical_output/' +
                                       f'cats/{self.runtag}{self.rank}.csv')
                 if len(self.wavs) > 1:
                     ridden2 = pd.read_csv(dir_path+f'/mimical_output/'
-                                          f'cats/{self.runtag}{self.rank}_perfilter.csv')
+                                          f'cats/{self.runtag}'
+                                          f'{self.rank}_perfilter.csv')
                 ridden1.index = ridden1['id'].values.astype('str')
                 if self.id not in ridden1.index.values:
                     ridden1.loc[self.id] = df1.values[0]
@@ -489,11 +513,12 @@ class fit(object):
                                    index=False)
                     if len(self.wavs) > 1:
                         ridden2.to_csv(dir_path+f'/mimical_output/'
-                                       f'cats/{self.runtag}{self.rank}_perfilter.csv',
+                                       f'cats/{self.runtag}'
+                                       f'{self.rank}_perfilter.csv',
                                        index=False)
 
         # Save best model image for each filter
-        param_vec = self.phandler.revert(self.points[np.argmax(self.log_l)])
+        param_vec = self.phandler.revert(self.maxL_sample)
         pars = param_vec[:, :np.sum(self.phandler.nsources)]
         psfarr = param_vec[:, np.sum(self.phandler.nsources)]
         self.image_models.update_parameters(torch.tensor(pars,
@@ -504,10 +529,11 @@ class fit(object):
                                                          device=self.accel))
         best_models = self.image_models.render().cpu().numpy()
         for i in range(len(self.wavs)):
-            np.savetxt(dir_path+f'/mimical_output/models{self.runtag}/' +
-                       f'{self.id}_best_model.txt', best_models[i])
+            hdu = fits.PrimaryHDU(best_models[i])
+            hdu.writeto(dir_path+f'/mimical_output/models{self.runtag}/'
+                        f'{self.id}_best_model.fits', overwrite=True)
 
-        print("Done.")
+        print(f"Object {self.id} done.")
 
     def save_plots(self):
         """ Wrapper to plot output. """
@@ -526,7 +552,7 @@ class fit(object):
             range = np.repeat(0.999, np.sum(mask))
         else:
             range = None
-        corner.corner(self.points.T[mask].T, weights=np.exp(self.log_w),
+        corner.corner(self.samples.T[mask].T,
                       bins=20, labels=np.array(self.sampler_prior_keys)[mask],
                       color='black', plot_datapoints=False,
                       range=range)
@@ -538,8 +564,7 @@ class fit(object):
         # Plot and save the maxL fit
         if isinstance(self.oversample, str):
             if self.oversample == 'auto':
-                bestsamp = self.points[np.argmax(self.log_l)]
-                modelpars = self.phandler.revert(bestsamp)
+                modelpars = self.phandler.revert(self.maxL_sample)
                 res = self.automatic_oversampling(modelpars)
                 oversample, oversample_radii = res
         else:
@@ -547,7 +572,7 @@ class fit(object):
             oversample_radii = self.oversample_radii
 
         plotting.plot_best(self.images, self.wavs, self.image_models,
-                           self.points[np.argmax(self.log_l)],
+                           self.maxL_sample,
                            self.phandler, self.filter_names,
                            self.contmaps, oversample,
                            self.oversample_bl, oversample_radii)
@@ -568,7 +593,7 @@ class fit(object):
         # Plot the errors used in fitting
         plotting.plot_errors(self.images, self.wavs, self.mimical_prior,
                              self.image_models,
-                             self.points[np.argmax(self.log_l)],
+                             self.maxL_sample,
                              self.phandler, self.filter_names,
                              self.contmaps)
         plt.savefig(dir_path+f'/mimical_output/plots{self.runtag}/'

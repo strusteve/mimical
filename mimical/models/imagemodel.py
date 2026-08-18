@@ -48,7 +48,8 @@ class ImageModel(object):
     """
 
     def __init__(self, x, y, submodels, psf, psf_pa, oversample=None,
-                 oversample_bl=None, oversample_radii=None, sizes=None):
+                 oversample_bl=None, oversample_radii=None,
+                 rotmethod='interpolation'):
 
         self.x = x
         self.y = y
@@ -69,9 +70,16 @@ class ImageModel(object):
             psfy = torch.arange(psf[0].shape[0], device=self.x.device)
             self.psf_xgrid, self.psf_ygrid = torch.meshgrid(psfx, psfy,
                                                             indexing='xy')
-            self.utilnum = torch.arange(len(psf_pa), device=x.device)
 
-        self.rot = Rotator(device=self.x.device)
+        if rotmethod == 'interpolation':
+            self.rotator = Rotator(device=self.x.device).interpolation
+        elif rotmethod == 'intersection':
+            self.rotator = Rotator(device=self.x.device).intersection
+        else:
+            raise Exception("Can only choose 'interpolation', or "
+                            "'intersection' for rotation method.")
+
+        self.utilnum = torch.arange(len(psf_pa), device=x.device)
 
     def update_parameters(self, submodel_params, psf_pa):
         """ Update the submodel parameters and psf position angles. """
@@ -123,13 +131,10 @@ class ImageModel(object):
             if (self.psf_pa == 0).all():
                 psf_rot = self.psf
             else:
-                '''
-                psf_rot = self.rot.intersection(self.psf, self.psf_pa,
-                                                base_x=self.psf_xgrid,
-                                                base_y=self.psf_ygrid,
-                                                utilnum=self.utilnum)
-                '''
-                psf_rot = self.rot.interpolation(self.psf, self.psf_pa)
+                psf_rot = self.rotator(self.psf, self.psf_pa,
+                                       base_x=self.psf_xgrid,
+                                       base_y=self.psf_ygrid,
+                                       utilnum=self.utilnum)
                 norm = 1 / torch.sum(psf_rot, (1, 2))
                 psf_rot = psf_rot * norm[:, None, None]
 
