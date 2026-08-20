@@ -255,8 +255,8 @@ def plot_errors(images, wavs, mimical_prior, image_models, best_sample,
     models = image_models.render().cpu().numpy()
 
     # Create master lists for appending
-    rmserr = (np.zeros_like(images).T + rmsarr.T).T
-    poissonerr = ((cpfarr**(-1/2))*np.sqrt(np.abs(models)).T).T
+    rmserr = (np.zeros_like(images.T) + rmsarr.T).T
+    poissonerr = ((cpfarr.T**(-1/2))*np.sqrt(np.abs(models.T))).T
     sigmaerr = np.sqrt(rmserr**2 + (poissonerr)**2)
     ratio = (poissonerr/(poissonerr+rmserr))*100
 

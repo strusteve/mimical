@@ -438,6 +438,7 @@ class fit(object):
         df = pd.DataFrame(posterior,
                           columns=[*self.sampler_prior_keys,
                                    'logL', 'success'])
+        print(df)
         Table.from_pandas(df).write(dir_path + f'/mimical_output/posteriors'
                                     f'{self.runtag}/{self.id}.fits',
                                     overwrite=True)
@@ -545,6 +546,8 @@ class fit(object):
                       f"{self.runtag}/corner_plots")
             os.system('mkdir -p ' + dir_path + "/mimical_output/plots"
                       f"{self.runtag}/error_plots")
+            os.system('mkdir -p ' + dir_path + "/mimical_output/plots"
+                      f"{self.runtag}/trend_plots")
 
         # Plot and save the corner plot
         mask = self.phandler.smask
