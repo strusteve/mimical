@@ -438,7 +438,6 @@ class fit(object):
         df = pd.DataFrame(posterior,
                           columns=[*self.sampler_prior_keys,
                                    'logL', 'success'])
-        print(df)
         Table.from_pandas(df).write(dir_path + f'/mimical_output/posteriors'
                                     f'{self.runtag}/{self.id}.fits',
                                     overwrite=True)
