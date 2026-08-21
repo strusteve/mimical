@@ -38,7 +38,8 @@ class priorHandler(object):
         An ID for the fitting run. Only really used for output files.
     """
 
-    def __init__(self, mimical_prior, filter_names, wavs, images, runtag, id):
+    def __init__(self, mimical_prior, filter_names, wavs,
+                 images, runtag, id, bgmaps=None):
         self.mimical_prior = mimical_prior
         self.mimical_keys = []
         for key in self.mimical_prior.keys():
@@ -61,21 +62,13 @@ class priorHandler(object):
             if self.mimical_prior['rms'][0] == "Infer":
                 self.rms = []
                 for i in range(len(self.wavs)):
-                    if os.path.isfile(dir_path+f'/mimical_output/sextractor/'
-                                      f'segmaps{self.runtag}'
-                                      f'/{self.id}_{self.filter_names[i]}.fits'
-                                      ):
-                        segmap = fits.open(dir_path+f'/mimical_output/'
-                                           f'sextractor/segmaps'
-                                           f'{self.runtag}/{self.id}_'
-                                           f'{self.filter_names[i]}.fits'
-                                           )[0].data.astype(float)
-                        bckgnd = self.images[i][segmap == 0]
-                        rmsi = ((np.sum(bckgnd**2))/len(bckgnd))**(1/2)
-                        self.rms.append(rmsi)
-                    else:
-                        raise Exception("Must run Sextractor if using type "
-                                        "'Infer'.")
+                    bg = self.images[i][bgmaps[i] == 1]
+                    rmsi = np.sqrt(np.mean(np.square(bg)))
+                    self.rms.append(rmsi)
+
+            else:
+                raise Exception("Must run Sextractor if using type "
+                                "'Infer'.")
 
     def sampler_prior(self, x):
         """ Defines the prior used for sampling. Transforms the unit cube. """

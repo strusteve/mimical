@@ -8,12 +8,12 @@ fs = 6
 
 
 def plot_best(images, wavs, image_models, best_sample, prior_handler,
-              filter_names, segmaps, oversample=None,
+              filter_names, contmaps, oversample=None,
               oversample_bl=None, oversample_radii=None):
     """ Plots the maximum likelihood model and resid."""
 
-    # Pass segmaps through images
-    images *= segmaps
+    # Pass contmaps through images
+    images *= contmaps
 
     # Initiate plot
     fig = plt.figure()
@@ -35,7 +35,7 @@ def plot_best(images, wavs, image_models, best_sample, prior_handler,
                                          oversample_radii)
 
     models = image_models.render().cpu().numpy()
-    resid = (images-models)*segmaps
+    resid = (images-models)*contmaps
 
     # Set vmins
     vmins = [-max([np.percentile(x.flatten(), q=99.9) for x in images]),
@@ -217,7 +217,7 @@ def plot_trends(wavs, samples, mimical_prior, prior_handler, mimical_keys):
 
 
 def plot_errors(images, wavs, mimical_prior, image_models, best_sample,
-                prior_handler, filter_names, segmaps, oversample=None,
+                prior_handler, filter_names, contmaps, oversample=None,
                 oversample_bl=None, oversample_radii=None):
     """ Provides a summary of the individual errors present in best model. """
 
@@ -304,7 +304,7 @@ def plot_errors(images, wavs, mimical_prior, image_models, best_sample,
         for j in range(4):
 
             ax = fig.add_subplot(gs[j, i])
-            im = ax.pcolormesh(plotims[j]*segmaps[i], vmax=vmaxs[j],
+            im = ax.pcolormesh(plotims[j]*contmaps[i], vmax=vmaxs[j],
                                vmin=vmins[j], cmap=cmc.managua_r,
                                rasterized=True)
             ax.set_yticks([])

@@ -14,7 +14,8 @@ from astropy.io import fits
 from ..priors.prior_handler import priorHandler
 from ..plotting import plotting
 from ..utils import filter_set
-from ..utils import create_contmaps
+from ..utils import get_segmaps
+from ..utils import dilute_segmaps
 from ..utils import make_oversampling_table
 from ..models.submodels import Sersic
 from ..models.imagemodel import ImageModel
@@ -75,7 +76,7 @@ class fit(object):
 
     def __init__(self, id, images, filt_list, psfs, mimical_prior,
                  se_clean=False, se_maxdist='default',
-                 dilute=True, dilute_radius=5, runtag='', rank=''):
+                 dilute=True, dilute_radius=10, runtag='', rank=''):
 
         if not os.path.isdir(dir_path + f"/mimical_output/models{runtag}"):
             os.system('mkdir -p ' + dir_path +
@@ -119,23 +120,35 @@ class fit(object):
         self.wavs = (filt_set.eff_wavs / 1e4)
 
         # Set and run SourceExtractor if desired
-        self.contmaps = np.ones_like(self.images)
-        if se_maxdist == 'default':
-            self.se_maxdist = 30
+        if se_clean:
+            if se_maxdist == 'default':
+                self.se_maxdist = 30
+            else:
+                self.se_maxdist = se_maxdist
+            # 0=bg, 1=target, 2=contamination
+            segmaps = get_segmaps(self.id,
+                                  self.wavs,
+                                  self.images,
+                                  self.filter_names,
+                                  self.se_maxdist,
+                                  self.runtag)
+            # 0=contamination, 1=bg+target
+            self.contmaps = [np.ones_like(sm)-(sm == 2) for sm in segmaps]
+            # 0=sources, 1=bg
+            self.bgmaps = [np.ones_like(sm)-(sm > 0) for sm in segmaps]
+            if dilute:
+                self.contmaps = dilute_segmaps(self.contmaps, dilute_radius)
+                self.bgmaps = dilute_segmaps(self.bgmaps, dilute_radius)
+            self.contmaps = np.array((self.contmaps))
+            self.bgmaps = np.array((self.bgmaps))
         else:
-            self.se_maxdist = se_maxdist
-        self.dilute = dilute
-        self.dilute_radius = dilute_radius
-        if self.se_clean:
-            self.contmaps = create_contmaps(self.id, self.wavs, self.images,
-                                            self.filter_names, self.contmaps,
-                                            self.se_maxdist, self.dilute,
-                                            self.dilute_radius, self.runtag)
+            self.contmaps = np.ones_like(self.images)
+            self.bgmaps = np.ones_like(self.images)
 
         # Initiate the prior handler object, used to parse and translate priors
         self.phandler = priorHandler(self.mimical_prior, self.filter_names,
                                      self.wavs, self.images, self.runtag,
-                                     self.id)
+                                     self.id, self.bgmaps)
         self.sampler_prior_keys = self.phandler.keys
         print(f"\nFitting object {self.id} with"
               f" -{self.phandler.nsources}- parameter submodels with"
