@@ -10,6 +10,7 @@ from scipy.interpolate import RegularGridInterpolator as RGI
 from copy import deepcopy
 from astropy.table import Table
 from astropy.io import fits
+import subprocess
 
 from ..priors.prior_handler import priorHandler
 from ..plotting import plotting
@@ -75,16 +76,16 @@ class fit(object):
     """
 
     def __init__(self, id, images, filt_list, psfs, mimical_prior,
-                 se_clean=False, se_maxdist='default',
-                 dilute=True, dilute_radius=10, runtag='', rank=''):
+                 se_clean=False, se_maxdist=10,
+                 dilute=True, dilute_radius=3, runtag='', rank=''):
 
-        if not os.path.isdir(dir_path + f"/mimical_output/models{runtag}"):
-            os.system('mkdir -p ' + dir_path +
-                      f"/mimical_output/cats")
-            os.system('mkdir -p ' + dir_path +
-                      f"/mimical_output/models{runtag}")
-            os.system('mkdir -p ' + dir_path +
-                      f"/mimical_output/posteriors{runtag}")
+        if not os.path.isdir(dir_path + f"/mimical_output/posteriors{runtag}"):
+            subprocess.run(['mkdir', '-p',
+                            dir_path+"/mimical_output/cats"])
+            subprocess.run(['mkdir', '-p',
+                            dir_path+f"/mimical_output/models{runtag}"])
+            subprocess.run(['mkdir', '-p',
+                            dir_path+f"/mimical_output/posteriors{runtag}"])
 
         # Set positional arguments
         self.id = id
@@ -121,29 +122,35 @@ class fit(object):
 
         # Set and run SourceExtractor if desired
         if se_clean:
-            if se_maxdist == 'default':
-                self.se_maxdist = 30
-            else:
-                self.se_maxdist = se_maxdist
             # 0=bg, 1=target, 2=contamination
             segmaps = get_segmaps(self.id,
                                   self.wavs,
                                   self.images,
                                   self.filter_names,
-                                  self.se_maxdist,
+                                  se_maxdist,
                                   self.runtag)
-            # 0=contamination, 1=bg+target
-            self.contmaps = [np.ones_like(sm)-(sm == 2) for sm in segmaps]
-            # 0=sources, 1=bg
+
+            # 0 = sources, 1 = background
             self.bgmaps = [np.ones_like(sm)-(sm > 0) for sm in segmaps]
             if dilute:
-                self.contmaps = dilute_segmaps(self.contmaps, dilute_radius)
                 self.bgmaps = dilute_segmaps(self.bgmaps, dilute_radius)
-            self.contmaps = np.array((self.contmaps))
             self.bgmaps = np.array((self.bgmaps))
+
+            # 0=contamination, 1=target+background
+            self.contmaps = [np.abs(sm - 2) for sm in segmaps]
+            if dilute:
+                contmaps_dil = dilute_segmaps(self.contmaps, dilute_radius)
+                for i in range(len(self.contmaps)):
+                    self.contmaps[i][contmaps_dil[i] == 0] = 0
+                    self.contmaps[i][segmaps[i] == 1] = 1
+                    self.contmaps[i][self.contmaps[i] != 0] = 1
+
+            self.bgmaps = np.array((self.bgmaps))
+            self.contmaps = np.array((self.contmaps))
+
         else:
-            self.contmaps = np.ones_like(self.images)
             self.bgmaps = np.ones_like(self.images)
+            self.contmaps = np.ones_like(self.images)
 
         # Initiate the prior handler object, used to parse and translate priors
         self.phandler = priorHandler(self.mimical_prior, self.filter_names,
@@ -178,6 +185,7 @@ class fit(object):
                     if isinstance(bounds, tuple):
                         if (any(reverted[:, voidcount] < bounds[0])) | \
                            (any(reverted[:, voidcount] > bounds[1])):
+                            print('Unphysical model detected.')
                             return 'void', 'void'
                     else:
                         continue
@@ -187,6 +195,7 @@ class fit(object):
                 if isinstance(bounds, tuple):
                     if (any(reverted[:, voidcount] < bounds[0])) | \
                        (any(reverted[:, voidcount] > bounds[1])):
+                        print('Unphysical model detected.')
                         return 'void', 'void'
                 else:
                     continue
@@ -231,9 +240,8 @@ class fit(object):
 
         # If the model has NaNs, set to zero and blow up errors.
         if np.isnan(np.sum(model)):
-            model = np.zeros_like(model)
-            sigma = np.zeros_like(model) + 1e99
-            print('Unphysical model detected.')
+            return 'void', 'void'
+
         # Calculate the error by the quadrature sum of rms and poisson errors
         else:
             sigma = np.sqrt(rmsarr.T**2 +
@@ -259,7 +267,7 @@ class fit(object):
         residuals, sigma = self.get_residuals(param_vec)
 
         if isinstance(residuals, str):
-            return -9.99e99
+            return -1e99
 
         norm = np.log((1/(np.sqrt(2*np.pi*(sigma**2)))))
         log_like_array = norm + ((-(residuals)**2) / (2*(sigma**2)))
@@ -370,7 +378,8 @@ class fit(object):
                                           method='cubic')
 
         # Check if a posterior already exists for the object being fitted
-        try:
+        if os.path.isfile(dir_path+f'/mimical_output/posteriors{self.runtag}'
+                          f'/{self.id}.fits'):
             posterior = Table.read(dir_path+f'/mimical_output/posteriors'
                                    f'{self.runtag}/{self.id}.fits')
             print(f"Loading existing posterior for object {self.id} at "
@@ -384,7 +393,7 @@ class fit(object):
             self.success = bool(posterior[:, -1][0])
             self.save_output()
 
-        except FileNotFoundError, OSError:
+        else:
             # Set the sampler prior
             sampler = Sampler(self.phandler.sampler_prior, self.lnlike,
                               n_live=n_live, pool=pool,
@@ -552,29 +561,29 @@ class fit(object):
         """ Wrapper to plot output. """
 
         if not os.path.isdir(dir_path + f"/mimical_output/plots{self.runtag}"):
-            os.system('mkdir -p ' + dir_path + "/mimical_output/plots"
-                      f"{self.runtag}/summary_plots")
-            os.system('mkdir -p ' + dir_path + "/mimical_output/plots"
-                      f"{self.runtag}/corner_plots")
-            os.system('mkdir -p ' + dir_path + "/mimical_output/plots"
-                      f"{self.runtag}/error_plots")
-            os.system('mkdir -p ' + dir_path + "/mimical_output/plots"
-                      f"{self.runtag}/trend_plots")
+            subprocess.run(['mkdir', '-p', dir_path + f"/mimical_output/"
+                            f"plots{self.runtag}/summary_plots"])
+            subprocess.run(['mkdir', '-p', dir_path + f"/mimical_output/"
+                            f"plots{self.runtag}/corner_plots"])
+            subprocess.run(['mkdir', '-p', dir_path + f"/mimical_output/"
+                            f"plots{self.runtag}/error_plots"])
+            subprocess.run(['mkdir', '-p', dir_path + f"/mimical_output/"
+                            f"plots{self.runtag}/trend_plots"])
 
         # Plot and save the corner plot
         mask = self.phandler.smask
         if self.success:
             range = np.repeat(0.999, np.sum(mask))
-        else:
-            range = None
-        corner.corner(self.samples.T[mask].T,
-                      bins=20, labels=np.array(self.sampler_prior_keys)[mask],
-                      color='black', plot_datapoints=False,
-                      range=range)
-        plt.savefig(dir_path+f'/mimical_output/plots{self.runtag}/'
-                    f'corner_plots/{self.id}_corner.pdf',
-                    bbox_inches='tight',
-                    transparent=True)
+            corner.corner(self.samples.T[mask].T,
+                          bins=20,
+                          labels=np.array(self.sampler_prior_keys)[mask],
+                          color='black',
+                          plot_datapoints=False,
+                          range=range)
+            plt.savefig(dir_path+f'/mimical_output/plots{self.runtag}/'
+                        f'corner_plots/{self.id}_corner.pdf',
+                        bbox_inches='tight',
+                        transparent=True)
 
         # Plot and save the maxL fit
         if isinstance(self.oversample, str):

@@ -1,6 +1,6 @@
 from ..utils import MLP
 from ..utils import SquareIntersectionPredictor
-from ..utils import make_nn
+from ..utils import train_nn
 import torch
 import os
 import torch.nn.functional as Fnn
@@ -16,7 +16,7 @@ class Rotator(object):
 
         model = MLP()
         if not os.path.isfile(netdir + "/square_intersection_nn.pth"):
-            model = make_nn(model)
+            model = train_nn(model)
         else:
             model.load_state_dict(torch.load(netdir +
                                              "/square_intersection_nn.pth",

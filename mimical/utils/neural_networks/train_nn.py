@@ -3,7 +3,6 @@ from shapely.affinity import rotate, translate
 from torch.utils.data import TensorDataset, DataLoader
 import torch
 import torch.nn as nn
-import matplotlib.pyplot as plt
 import os
 import numpy as np
 
@@ -51,7 +50,7 @@ def generate_dataset(n):
     return X, y
 
 
-def make_nn(MLP, device="cpu"):
+def train_nn(MLP, device="cpu"):
 
     print('Training square intersection model...')
     # data

@@ -10,7 +10,7 @@ with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
 setup(
     name='mimical',
 
-    version='0.5.8',
+    version='0.6.3',
 
     description='Intensity modelling for multiply-imaged objects',
 

@@ -1,7 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import os
-from astropy.io import fits
 
 from .prior_types import individual, polynomial, powerlaw
 
@@ -63,9 +62,8 @@ class priorHandler(object):
                 self.rms = []
                 for i in range(len(self.wavs)):
                     bg = self.images[i][bgmaps[i] == 1]
-                    rmsi = np.sqrt(np.mean(np.square(bg)))
+                    rmsi = np.std(bg)
                     self.rms.append(rmsi)
-
             else:
                 raise Exception("Must run Sextractor if using type "
                                 "'Infer'.")

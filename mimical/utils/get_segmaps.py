@@ -1,8 +1,10 @@
 import os
+import subprocess
 from astropy.io import fits
 import numpy as np
 from astropy.io import ascii
 import scipy
+import matplotlib.pyplot as plt
 
 dir_path = os.getcwd()
 install_dir = os.path.dirname(os.path.realpath(__file__))
@@ -14,16 +16,16 @@ def get_segmaps(id, wavs, images, filter_names, se_maxdist, runtag=''):
     """ Method for cleaning contaminated images with sextractor, overwrites
     images and segmentation maps. """
 
-    segmaps = []
+    segmaps_new = []
 
     if not os.path.isdir(dir_path +
                          f"/mimical_output/sextractor/cats{runtag}"):
-        os.system('mkdir -p ' + dir_path +
-                  f"/mimical_output/sextractor/input_images{runtag}")
-        os.system('mkdir -p ' + dir_path +
-                  f"/mimical_output/sextractor/cats{runtag}")
-        os.system('mkdir -p ' + dir_path +
-                  f"/mimical_output/sextractor/segmaps{runtag}")
+        subprocess.run(['mkdir', '-p', dir_path+f"/mimical_output/"
+                        f"sextractor/input_images{runtag}"])
+        subprocess.run(['mkdir', '-p', dir_path+f"/mimical_output/"
+                        f"sextractor/cats{runtag}"])
+        subprocess.run(['mkdir', '-p', dir_path+f"/mimical_output/"
+                        f"sextractor/segmaps{runtag}"])
 
     # Save images passed to Mimical for passing to Sextractor
     for i in range(len(wavs)):
@@ -34,16 +36,21 @@ def get_segmaps(id, wavs, images, filter_names, se_maxdist, runtag=''):
 
     # Run Sextractor
     for i in range(len(wavs)):
-        os.system(f"sex {dir_path}/mimical_output/sextractor/"
-                  f"input_images{runtag}/{id}_{filter_names[i]}.fits -c "
-                  f"{sextractor_dir}/jwst_default_segmap.config -FILTER_NAME "
-                  f"{sextractor_dir}/gauss_2.5_5x5.conv -PARAMETERS_NAME "
-                  f"{sextractor_dir}/default.param -CATALOG_NAME {dir_path}/"
-                  f"mimical_output/sextractor/cats{runtag}/{id}_"
-                  f"{filter_names[i]}.cat -CHECKIMAGE_NAME {dir_path}/"
-                  f"mimical_output/sextractor/segmaps{runtag}/{id}_"
-                  f"{filter_names[i]}.fits "
-                  "> /dev/null 2>&1")
+        subprocess.run(["sex",
+                        f"{dir_path}/mimical_output/sextractor/"
+                        f"input_images{runtag}/{id}_{filter_names[i]}.fits",
+                        "-c",
+                        f"{sextractor_dir}/jwst_default_segmap.config",
+                        "-FILTER_NAME",
+                        f"{sextractor_dir}/gauss_2.5_5x5.conv",
+                        "-PARAMETERS_NAME",
+                        f"{sextractor_dir}/default.param",
+                        "-CATALOG_NAME",
+                        f"{dir_path}/mimical_output/sextractor/"
+                        f"cats{runtag}/{id}_{filter_names[i]}.cat",
+                        "-CHECKIMAGE_NAME",
+                        f"{dir_path}/mimical_output/sextractor/"
+                        f"segmaps{runtag}/{id}_{filter_names[i]}.fits"])
 
     # Loop over filters, load Sextractor catalogues and segmentation maps,
     # determine any areas of contamination.
@@ -69,22 +76,26 @@ def get_segmaps(id, wavs, images, filter_names, se_maxdist, runtag=''):
             interindex = np.argmin(np.array(cat['sep'].values))
             obj_of_interest = cat.loc[cat['NUMBER'].values[interindex]]
 
+        segmap_new = np.zeros_like(segmap)
+
         # If closest object is not near centre, cut it / others
         if obj_of_interest['sep'] > se_maxdist:
-            segmap[segmap != 0] = 2
+            segmap_new[segmap != 0] = 2
 
         # If closest object is near centre, cut all else
         else:
-            segmap[segmap == obj_of_interest['NUMBER']] = 1
-            segmap[(segmap != 0) & (segmap != obj_of_interest['NUMBER'])] = 2
+            segmap_new[segmap == obj_of_interest['NUMBER']] = 1
+            segmap_new[(segmap != 0) &
+                       (segmap != obj_of_interest['NUMBER'])] = 2
 
-        segmaps.append(segmap)
+        segmaps_new.append(segmap_new)
 
-    return segmaps
+    return segmaps_new
 
 
 def dilute_segmaps(segmaps, dilute_radius):
 
+    # Dilute the full image
     segmaps_diluted = []
     for i in range(len(segmaps)):
         coordsx, coordsy = np.meshgrid(np.arange(2*dilute_radius+1) -
@@ -94,5 +105,7 @@ def dilute_segmaps(segmaps, dilute_radius):
         mask = coordsx**2 + coordsy**2 <= dilute_radius**2
         diluted = scipy.ndimage.minimum_filter(segmaps[i], footprint=mask)
         segmaps_diluted.append(diluted)
+
+    # Add in the source
 
     return segmaps_diluted
