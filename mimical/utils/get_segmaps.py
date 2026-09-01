@@ -26,6 +26,8 @@ def get_segmaps(id, wavs, images, filter_names, se_maxdist, runtag=''):
                         f"sextractor/cats{runtag}"])
         subprocess.run(['mkdir', '-p', dir_path+f"/mimical_output/"
                         f"sextractor/segmaps{runtag}"])
+        subprocess.run(['mkdir', '-p', dir_path+f"/mimical_output/"
+                        f"sextractor/rmsmaps{runtag}"])
 
     # Save images passed to Mimical for passing to Sextractor
     for i in range(len(wavs)):
@@ -48,9 +50,13 @@ def get_segmaps(id, wavs, images, filter_names, se_maxdist, runtag=''):
                         "-CATALOG_NAME",
                         f"{dir_path}/mimical_output/sextractor/"
                         f"cats{runtag}/{id}_{filter_names[i]}.cat",
+                        "-CHECKIMAGE_TYPE",
+                        "SEGMENTATION,BACKGROUND_RMS",
                         "-CHECKIMAGE_NAME",
                         f"{dir_path}/mimical_output/sextractor/"
-                        f"segmaps{runtag}/{id}_{filter_names[i]}.fits"])
+                        f"segmaps{runtag}/{id}_{filter_names[i]}.fits,"
+                        f"{dir_path}/mimical_output/sextractor/"
+                        f"rmsmaps{runtag}/{id}_{filter_names[i]}.fits"])
 
     # Loop over filters, load Sextractor catalogues and segmentation maps,
     # determine any areas of contamination.

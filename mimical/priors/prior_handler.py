@@ -38,7 +38,7 @@ class priorHandler(object):
     """
 
     def __init__(self, mimical_prior, filter_names, wavs,
-                 images, runtag, id, bgmaps=None):
+                 images, runtag, id):
         self.mimical_prior = mimical_prior
         self.mimical_keys = []
         for key in self.mimical_prior.keys():
@@ -56,17 +56,6 @@ class priorHandler(object):
         self.images = images
         self.runtag = runtag
         self.id = id
-
-        if isinstance(self.mimical_prior['rms'][0], str):
-            if self.mimical_prior['rms'][0] == "Infer":
-                self.rms = []
-                for i in range(len(self.wavs)):
-                    bg = self.images[i][bgmaps[i] == 1]
-                    rmsi = np.std(bg)
-                    self.rms.append(rmsi)
-            else:
-                raise Exception("Must run Sextractor if using type "
-                                "'Infer'.")
 
     def sampler_prior(self, x):
         """ Defines the prior used for sampling. Transforms the unit cube. """
@@ -294,15 +283,6 @@ class priorHandler(object):
                                         "choose either 'Individual', "
                                         "'Polynomial' or 'Power-law'.")
 
-                # For inferred RMS
-                elif (key == 'rms') & (isinstance(prior_dist, str)):
-                    if (prior_dist == 'Infer'):
-                        theta[thetac:thetac+len(self.wavs)] = self.rms
-                        thetac += len(self.wavs)
-                    else:
-                        raise Exception("The only special prior type for "
-                                        "RMS is 'Infer'.")
-
             # For wrongly inputted prior types
             else:
                 raise Exception("Mimical only accepts a min/max tuple for "
@@ -383,62 +363,49 @@ class priorHandler(object):
 
                 # Load in the Mimical prior element
                 param_prior_traits = self.mimical_prior[keys[i]]
-                prior_dist = param_prior_traits[0]
+                param_fit_type = param_prior_traits[1]
 
-                # If using 'Infer' special type for the RMS parameter
-                if (keys[i] == 'rms') & (isinstance(prior_dist, str)):
-                    if (prior_dist == 'Infer'):
-                        params_final[:, ind] = param_dict[count:
-                                                          count+len(self.wavs)]
-                        ind += 1
-                        count += len(self.wavs)
-                    else:
-                        raise Exception(' ')
+                # If individual, add the sample for each filter
+                if param_fit_type == "Individual":
+                    params_final[:, ind] = param_dict[count:
+                                                      count+len(self.wavs)]
+                    ind += 1
+                    count += len(self.wavs)
+
+                # If polynomial, calculate the expected parameter in each
+                # filter given its effective wavlength
+                elif param_fit_type == "Polynomial":
+                    poly_order = param_prior_traits[2]
+                    coeffs = param_dict[count:count+poly_order+1]
+                    polywavs = np.pow(np.tile(self.wavs-self.wavs[0],
+                                              (poly_order+1, 1)).T,
+                                      np.arange(poly_order+1))
+                    comps = coeffs * polywavs
+                    comps_summed = np.sum(comps, axis=1)
+                    params_final[:, ind] = comps_summed
+                    ind += 1
+                    count += poly_order+1
+
+                # If power-law, calculate the expected parameter in each
+                # filter given its effective wavlength.
+                elif param_fit_type == "Power-law":
+                    epsilon = param_prior_traits[3]
+                    coeffs = param_dict[count:count+3]
+                    tiler = np.tile(((self.wavs-self.wavs[0])+epsilon) /
+                                    ((self.wavs[-1]-self.wavs[0])+epsilon),
+                                    (2, 1)).T
+                    polywavs = np.pow(tiler, np.array([0, coeffs[2]]))
+                    comps = np.array([coeffs[0],
+                                      coeffs[1]-coeffs[0]]) * polywavs
+                    comps_summed = np.sum(comps, axis=1)
+                    params_final[:, ind] = comps_summed
+                    ind += 1
+                    count += 3
 
                 else:
-                    param_fit_type = param_prior_traits[1]
-
-                    # If individual, add the sample for each filter
-                    if param_fit_type == "Individual":
-                        params_final[:, ind] = param_dict[count:
-                                                          count+len(self.wavs)]
-                        ind += 1
-                        count += len(self.wavs)
-
-                    # If polynomial, calculate the expected parameter in each
-                    # filter given its effective wavlength
-                    elif param_fit_type == "Polynomial":
-                        poly_order = param_prior_traits[2]
-                        coeffs = param_dict[count:count+poly_order+1]
-                        polywavs = np.pow(np.tile(self.wavs-self.wavs[0],
-                                                  (poly_order+1, 1)).T,
-                                          np.arange(poly_order+1))
-                        comps = coeffs * polywavs
-                        comps_summed = np.sum(comps, axis=1)
-                        params_final[:, ind] = comps_summed
-                        ind += 1
-                        count += poly_order+1
-
-                    # If power-law, calculate the expected parameter in each
-                    # filter given its effective wavlength.
-                    elif param_fit_type == "Power-law":
-                        epsilon = param_prior_traits[3]
-                        coeffs = param_dict[count:count+3]
-                        tiler = np.tile(((self.wavs-self.wavs[0])+epsilon) /
-                                        ((self.wavs[-1]-self.wavs[0])+epsilon),
-                                        (2, 1)).T
-                        polywavs = np.pow(tiler, np.array([0, coeffs[2]]))
-                        comps = np.array([coeffs[0],
-                                          coeffs[1]-coeffs[0]]) * polywavs
-                        comps_summed = np.sum(comps, axis=1)
-                        params_final[:, ind] = comps_summed
-                        ind += 1
-                        count += 3
-
-                    else:
-                        raise Exception("Fitting type not supported, please "
-                                        "choose either 'Individual', "
-                                        "'Polynomial' or 'Power-law'.")
+                    raise Exception("Fitting type not supported, please "
+                                    "choose either 'Individual', "
+                                    "'Polynomial' or 'Power-law'.")
 
         return params_final
 
@@ -606,16 +573,6 @@ class priorHandler(object):
                         raise Exception("Fitting type not supported, please "
                                         "choose either 'Individual', "
                                         "'Polynomial' or 'Power-law'.")
-
-                # For inferred RMS
-                elif (key == 'rms') & (isinstance(prior_dist, str)):
-                    if (prior_dist == 'Infer'):
-                        for i in range(len(self.wavs)):
-                            keys.append(f'{key}_{self.filter_names[i]}')
-                            smask.append(False)
-                            nparam += 1
-                    else:
-                        raise Exception('')
 
         return nsources, nparam, ndim, keys, smask
 

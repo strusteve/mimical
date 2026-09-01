@@ -142,9 +142,6 @@ def plot_trends(wavs, samples, mimical_prior, prior_handler, mimical_keys):
 
                 if isinstance(mimical_prior[priorkey][subkey][0], tuple):
                     labstr += '\nFitted'
-                elif isinstance(mimical_prior[priorkey][subkey][0], str):
-                    if mimical_prior[priorkey][subkey][0] == 'Infer':
-                        labstr += '\nInferred'
                 else:
                     labstr += '\nFixed'
 
@@ -186,9 +183,6 @@ def plot_trends(wavs, samples, mimical_prior, prior_handler, mimical_keys):
                           f'{mimical_prior[priorkey][2]}'
             if isinstance(mimical_prior[priorkey][0], tuple):
                 labstr += '\nFitted'
-            elif isinstance(mimical_prior[priorkey][0], str):
-                if mimical_prior[priorkey][0] == 'Infer':
-                    labstr += '\nInferred'
             else:
                 labstr += '\nFixed'
 

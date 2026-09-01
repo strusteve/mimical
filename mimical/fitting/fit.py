@@ -152,10 +152,21 @@ class fit(object):
             self.bgmaps = np.ones_like(self.images)
             self.contmaps = np.ones_like(self.images)
 
+        # If inferring background, set
+        if isinstance(self.mimical_prior['rms'][0], str):
+            if self.mimical_prior['rms'][0] == "Infer":
+                se_rms = []
+                for i in self.filter_names:
+                    rmsmap = fits.open(f"{dir_path}/mimical_output/sextractor"
+                                       f"/rmsmaps{runtag}/{id}_{i}.fits"
+                                       )[0].data.astype(float)
+                    se_rms.append(rmsmap)
+                self.mimical_prior['rms'] = (se_rms, 'Individual')
+
         # Initiate the prior handler object, used to parse and translate priors
         self.phandler = priorHandler(self.mimical_prior, self.filter_names,
                                      self.wavs, self.images, self.runtag,
-                                     self.id, self.bgmaps)
+                                     self.id)
         self.sampler_prior_keys = self.phandler.keys
         print(f"\nFitting object {self.id} with"
               f" -{self.phandler.nsources}- parameter submodels with"
