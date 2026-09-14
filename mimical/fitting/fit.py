@@ -157,9 +157,13 @@ class fit(object):
             if self.mimical_prior['rms'][0] == "Infer":
                 se_rms = []
                 for i in self.filter_names:
-                    rmsmap = fits.open(f"{dir_path}/mimical_output/sextractor"
-                                       f"/rmsmaps{runtag}/{id}_{i}.fits"
-                                       )[0].data.astype(float)
+                    try:
+                        rmsmap = fits.open(f"{dir_path}/mimical_output/"
+                                           f"sextractor/rmsmaps{runtag}/{id}_"
+                                           f"{i}.fits")[0].data.astype(float)
+                    except FileNotFoundError:
+                        raise Exception("Must select se_clean=True to run"
+                                        " RMS type 'Infer'.")
                     se_rms.append(rmsmap)
                 self.mimical_prior['rms'] = (se_rms, 'Individual')
 
@@ -242,7 +246,7 @@ class fit(object):
         # Update oversampling if 'auto' is chosen
         if isinstance(self.oversample, str):
             if self.oversample == 'auto':
-                autosamp, autorad = self.automatic_oversampling(modelpars)
+                autosamp, autorad = self.automatic_oversampling()
                 self.image_models.update_oversampling(oversample=autosamp,
                                                       oversample_radii=autorad)
 
@@ -290,7 +294,7 @@ class fit(object):
         '''
         if self.calls % 100 == 0:
             print(f"Average call time at {self.calls}:"
-                  f"{self.calltime/self.calls}")
+                  f"{(self.calltime/self.calls)*1000}")
         '''
 
         return log_like
@@ -366,27 +370,70 @@ class fit(object):
         # Load automatic oversampling table if auto
         if isinstance(self.oversample, str):
             if self.oversample == 'auto':
+
                 if not os.path.isfile(tabledir +
-                                      '/table1_values.txt'):
-                    make_oversampling_table()
-                self.n_indices = np.loadtxt(tabledir + f'/n_values.txt')
-                self.r_eff_indices = np.loadtxt(tabledir +
-                                                f'/r_eff_values.txt')
-                self.oversamp_tab = np.c_[
-                    [np.loadtxt(tabledir +
-                                f'/table{i+1}_values.txt') for i in range(3)]]
-                self.interpolator_1 = RGI((self.r_eff_indices,
-                                           self.n_indices),
-                                          self.oversamp_tab[0],
-                                          method='cubic')
-                self.interpolator_2 = RGI((self.r_eff_indices,
-                                           self.n_indices),
-                                          self.oversamp_tab[1],
-                                          method='cubic')
-                self.interpolator_3 = RGI((self.r_eff_indices,
-                                           self.n_indices),
-                                          self.oversamp_tab[2],
-                                          method='cubic')
+                                      '/automatic_oversampling.fits'):
+                    make_oversampling_table(ImageModel, Sersic)
+
+                r_tab1 = Table.read(tabledir +
+                                    '/automatic_oversampling.fits',
+                                    hdu="RADII_1")
+                r_tab1_data = np.column_stack([r_tab1[col]
+                                               for col in r_tab1.colnames
+                                               if col != "Reff\\n"])
+                r_tab2 = Table.read(tabledir +
+                                    '/automatic_oversampling.fits',
+                                    hdu="RADII_2")
+                r_tab2_data = np.column_stack([r_tab2[col]
+                                               for col in r_tab2.colnames
+                                               if col != "Reff\\n"])
+                r_tab3 = Table.read(tabledir +
+                                    '/automatic_oversampling.fits',
+                                    hdu="RADII_3")
+                r_tab3_data = np.column_stack([r_tab3[col]
+                                               for col in r_tab3.colnames
+                                               if col != "Reff\\n"])
+
+                n_tab1 = Table.read(tabledir +
+                                    '/automatic_oversampling.fits',
+                                    hdu="FACTOR_1")
+                n_tab1_data = np.column_stack([n_tab1[col]
+                                               for col in n_tab1.colnames
+                                               if col != "Reff\\n"])
+                n_tab2 = Table.read(tabledir +
+                                    '/automatic_oversampling.fits',
+                                    hdu="FACTOR_2")
+                n_tab2_data = np.column_stack([n_tab2[col]
+                                               for col in n_tab2.colnames
+                                               if col != "Reff\\n"])
+                n_tab3 = Table.read(tabledir +
+                                    '/automatic_oversampling.fits',
+                                    hdu="FACTOR_3")
+                n_tab3_data = np.column_stack([n_tab3[col]
+                                               for col in n_tab3.colnames
+                                               if col != "Reff\\n"])
+
+                r_arr = r_tab1['Reff\\n'].data
+                n_arr = [float(r) for r in r_tab1.colnames[1:]]
+
+                self.radii_interpolator_1 = RGI((r_arr, n_arr),
+                                                r_tab1_data,
+                                                method='linear')
+                self.radii_interpolator_2 = RGI((r_arr, n_arr),
+                                                r_tab2_data,
+                                                method='linear')
+                self.radii_interpolator_3 = RGI((r_arr, n_arr),
+                                                r_tab3_data,
+                                                method='linear')
+                self.factor_interpolator_1 = RGI((r_arr, n_arr),
+                                                 n_tab1_data,
+                                                 method='linear')
+                self.factor_interpolator_2 = RGI((r_arr, n_arr),
+                                                 n_tab2_data,
+                                                 method='linear')
+                self.factor_interpolator_3 = RGI((r_arr, n_arr),
+                                                 n_tab3_data,
+                                                 method='linear')
 
         # Check if a posterior already exists for the object being fitted
         if os.path.isfile(dir_path+f'/mimical_output/posteriors{self.runtag}'
@@ -433,7 +480,7 @@ class fit(object):
 
         return chisq, len(chisq_arr)
 
-    def automatic_oversampling(self, modelpars):
+    def automatic_oversampling(self):
         """ Function to determine bets oversampling properties
         for Sersic fits. """
 
@@ -442,23 +489,26 @@ class fit(object):
                             " the primary source should be a"
                             "a Sersic profile.")
 
-        r_eff = modelpars[:, 1]
-        n = modelpars[:, 2]
+        r_eff = self.submodels[0].r_eff.cpu()
+        n = self.submodels[0].n.cpu()
         coords = np.array((r_eff, n)).T
 
-        oversamp_1 = self.interpolator_1(coords)
-        oversamp_2 = self.interpolator_2(coords)
-        oversamp_3 = self.interpolator_3(coords)
+        radii_1 = self.radii_interpolator_1(coords)
+        radii_2 = self.radii_interpolator_2(coords)
+        radii_3 = self.radii_interpolator_3(coords)
 
-        oversampling = np.maximum(1,
-                                  np.round(np.vstack([oversamp_1,
-                                                      oversamp_2,
-                                                      oversamp_3]).T))
-        argmax = np.argmax(np.sum(oversampling, axis=1))
+        factor_1 = self.factor_interpolator_1(coords)
+        factor_2 = self.factor_interpolator_2(coords)
+        factor_3 = self.factor_interpolator_3(coords)
 
-        autosamp = oversampling[argmax].astype(int).tolist()
-        autorad = np.array(([1, max(2, r_eff[argmax]),
-                             max(3, 3*r_eff[argmax])])).tolist()
+        # Stack automatic oversampling for each image
+        radii = np.vstack([radii_1, radii_2, radii_3]).T
+        factors = np.round(np.vstack([factor_1, factor_2, factor_3]).T)
+
+        # Find image with larget oversampling needs, set globally
+        argmax = np.argmax(np.sum(factors, axis=1))
+        autosamp = factors[argmax].astype(int).tolist()
+        autorad = radii[argmax].astype(float).tolist()
 
         return autosamp, autorad
 
@@ -599,8 +649,15 @@ class fit(object):
         # Plot and save the maxL fit
         if isinstance(self.oversample, str):
             if self.oversample == 'auto':
-                modelpars = self.phandler.revert(self.maxL_sample)
-                res = self.automatic_oversampling(modelpars)
+                reverted = self.phandler.revert(self.maxL_sample)
+                modelpars = reverted[:, :np.sum(self.phandler.nsources)]
+                psfarr = reverted[:, np.sum(self.phandler.nsources)]
+                newpars = torch.tensor(modelpars.astype(np.float32),
+                                       device=self.accel)
+                newpsfpas = torch.tensor(psfarr.astype(np.float32),
+                                         device=self.accel)
+                self.image_models.update_parameters(newpars, newpsfpas)
+                res = self.automatic_oversampling()
                 oversample, oversample_radii = res
         else:
             oversample = self.oversample

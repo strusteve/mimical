@@ -1,1 +1,1 @@
-from . import make_oversampling_table
+from .make_oversampling_table import make_oversampling_table

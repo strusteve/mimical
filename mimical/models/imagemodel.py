@@ -281,8 +281,8 @@ class ImageModel(object):
 
         # Bucketize
         r2 = centred_base_xgrid.square() + centred_base_ygrid.square()
-        buckets = torch.tensor([0,
-                                *[r**r for r in oversample_radii],
+        buckets = torch.tensor([-1,
+                                *[r*r for r in oversample_radii],
                                 1e99],
                                device=self.base_xgrid.device)
         bucketsamp = [*oversample, 1]
