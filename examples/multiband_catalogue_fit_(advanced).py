@@ -86,7 +86,9 @@ if __name__ == '__main__':
         source_1 = {}
         # Vary 'flux' from 0 to the maximum measured flux.
         maxflux = np.max([(10*get_flux(imp, 0.5/0.03)) for imp in images])
-        source_1['flux'] = ((0, maxflux), 'Individual')
+        maxmag = 23.9 - (2.5 * np.log10(maxflux))
+
+        source_1['mag'] = ((maxmag-2, maxmag+2), 'Individual')
         # Vary 'r_eff' from 0 to 20. Assume power-law relationship from
         # index -5 to 5.
         source_1['r_eff'] = ((0, 20), 'Power-law', (-5, 5))

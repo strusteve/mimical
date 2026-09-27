@@ -12,13 +12,14 @@ if __name__ == '__main__':
     filters = ['f090w']
     # This assumes you have filter transmission files in folder 'filters/'
     filt_list = ['filters/'+filt.upper() for filt in filters]
-    # Load NxM image
+    # Load NxM image, default is in muJy but this can be changed via the
+    # zeropoint keyword.
     image = [fits.open(f'image_f090w.fits').data]
     # Load PSF
     psf = [fits.open(f'psf_f090w.fits')]
-    # Load counts-per-flux image. Here 28e6 is the counts-per-second-per-flux.
+    # Load counts-per-flux image. Here 200 is the counts-per-second-per-flux.
     # Mutliplied by the exposure time, this gives counts-per-flux.
-    cpf = [fits.open(f'exposuremap_f090w.fits').data * 28e6]
+    cpf = [fits.open(f'exposuremap_f090w.fits').data * 200]
 
     ########################
     # Define mimical prior #
@@ -29,7 +30,7 @@ if __name__ == '__main__':
     source_1 = {}
     # Vary 'flux' from 0 to 1. Must chose 'Individual' option for
     # single-band fits.
-    source_1['flux'] = ((0, 1), 'Individual')
+    source_1['mag'] = ((20, 30), 'Individual')
     # Vary 'r_eff' from 1 to 20. Must chose 'Individual' option for
     # single-band fits.
     source_1['r_eff'] = ((0, 20), 'Individual')

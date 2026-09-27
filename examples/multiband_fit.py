@@ -40,7 +40,7 @@ if __name__ == '__main__':
     source_1 = {}
     # Vary 'flux' in each filter from 0 to 1. Assume no relationship, free
     # parameter for each filter.
-    source_1['flux'] = ((0, 1), 'Individual')
+    source_1['mag'] = ((20, 30), 'Individual')
     # Vary 'r_eff' in each filter from 1 to 20. Assume a power-law relationship
     # from index -3 to 3, three free parameters.
     source_1['r_eff'] = ((0, 20), 'Power-law', (-5, 5))

@@ -156,15 +156,21 @@ class fit(object):
         if isinstance(self.mimical_prior['rms'][0], str):
             if self.mimical_prior['rms'][0] == "Infer":
                 se_rms = []
-                for i in self.filter_names:
+                for i in range(len(self.filter_names)):
+
                     try:
                         rmsmap = fits.open(f"{dir_path}/mimical_output/"
                                            f"sextractor/rmsmaps{runtag}/{id}_"
-                                           f"{i}.fits")[0].data.astype(float)
+                                           f"{self.filter_names[i]}.fits"
+                                           )[0].data.astype(float)
                     except FileNotFoundError:
                         raise Exception("Must select se_clean=True to run"
                                         " RMS type 'Infer'.")
                     se_rms.append(rmsmap)
+
+                    # rmsmap = np.std(self.images[i][self.bgmaps[i]==1])
+                    # se_rms.append(rmsmap)
+
                 self.mimical_prior['rms'] = (se_rms, 'Individual')
 
         # Initiate the prior handler object, used to parse and translate priors
@@ -449,7 +455,6 @@ class fit(object):
             self.samples = posterior[:, :-2]
             self.log_l = posterior[:, -2]
             self.success = bool(posterior[:, -1][0])
-            self.save_output()
 
         else:
             # Set the sampler prior
@@ -469,7 +474,18 @@ class fit(object):
                                        size=n_post, p=np.exp(raw_log_w))
             self.samples = raw_points[indices]
             self.log_l = raw_log_l[indices]
-            self.save_output()
+            # Save the sampled points and corresponding log-weights
+            posterior = np.c_[self.samples, self.log_l,
+                              [int(self.success)]*len(self.log_l)]
+            df = pd.DataFrame(posterior,
+                              columns=[*self.sampler_prior_keys,
+                                       'logL', 'success'])
+            Table.from_pandas(df).write(dir_path + f'/mimical_output/'
+                                        f'posteriors{self.runtag}/'
+                                        f'{self.id}.fits',
+                                        overwrite=True)
+
+        self.maxL_sample = self.samples[np.argmax(self.log_l)]
 
     def calc_chisq(self, param_vec):
         """ Calculates the Chisq value for the given parameter vector. """
@@ -512,20 +528,20 @@ class fit(object):
 
         return autosamp, autorad
 
-    def save_output(self):
-        """ Saves the percentiles of user parameters for each filter. """
+    def save_output(self, save_catalogue=True,
+                    save_model=True, save_plots=True):
 
-        # Save the sampled points and corresponding log-weights
-        posterior = np.c_[self.samples, self.log_l,
-                          [int(self.success)]*len(self.log_l)]
-        df = pd.DataFrame(posterior,
-                          columns=[*self.sampler_prior_keys,
-                                   'logL', 'success'])
-        Table.from_pandas(df).write(dir_path + f'/mimical_output/posteriors'
-                                    f'{self.runtag}/{self.id}.fits',
-                                    overwrite=True)
+        if save_catalogue:
+            self.save_catalogue()
 
-        self.maxL_sample = self.samples[np.argmax(self.log_l)]
+        if save_model:
+            self.save_model()
+
+        if save_plots:
+            self.save_plots()
+
+    def save_catalogue(self):
+
         chisq, numd = self.calc_chisq(self.maxL_sample)
 
         # Save sampler values
@@ -600,6 +616,8 @@ class fit(object):
                                        f'{self.rank}_perfilter.csv',
                                        index=False)
 
+    def save_model(self):
+
         # Save best model image for each filter
         param_vec = self.phandler.revert(self.maxL_sample)
         pars = param_vec[:, :np.sum(self.phandler.nsources)]
@@ -610,16 +628,21 @@ class fit(object):
                                             torch.tensor(psfarr,
                                                          dtype=torch.float32,
                                                          device=self.accel))
+
+        # Update oversampling if 'auto' is chosen
+        if isinstance(self.oversample, str):
+            if self.oversample == 'auto':
+                autosamp, autorad = self.automatic_oversampling()
+                self.image_models.update_oversampling(oversample=autosamp,
+                                                      oversample_radii=autorad)
+
         best_models = self.image_models.render().cpu().numpy()
         for i in range(len(self.wavs)):
             hdu = fits.PrimaryHDU(best_models[i])
             hdu.writeto(dir_path+f'/mimical_output/models{self.runtag}/'
                         f'{self.id}_best_model.fits', overwrite=True)
 
-        print(f"Object {self.id} done.")
-
     def save_plots(self):
-        """ Wrapper to plot output. """
 
         if not os.path.isdir(dir_path + f"/mimical_output/plots{self.runtag}"):
             subprocess.run(['mkdir', '-p', dir_path + f"/mimical_output/"

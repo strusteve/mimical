@@ -37,14 +37,14 @@ def make_oversampling_table(ImageModel, Sersic):
             """Make 'true' reference image."""
             if os.path.isfile(install_dir + '/reference_images/'
                               f'{r_arr[i]}_{n_array[j]}.npy'):
-                print('present')
+                print('Savefile present.')
                 reference_image = np.load(install_dir + '/reference_images/'
                                           f'{r_arr[i]}_{n_array[j]}.npy')
                 reference_image = torch.tensor(reference_image)
 
             else:
                 # Use chunks to avoid OoM error
-                ref_oversample = 1000
+                ref_oversample = 10000
                 chunks = 50
                 reference_image = torch.zeros(1, 101, 101)
                 chx_orig = torch.cat((torch.arange(chunks) * (101//chunks),

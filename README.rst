@@ -69,7 +69,7 @@ You can fix any of the parameters in the Mimical prior by setting the first elem
 Mimical can be parallelised to different cores in one of two ways:
 
 * The likelihood calculations can be parallelised to different cores by using the ``pool`` keyword argument in the ``run`` function. This is ideal for single object fits.
-* When using ``fit_catalogue``, the ``mpi_serial`` keyword arguement can be set to ``True`` for individual object fits to be parallelised to separate cores. With this option enabled, mimical must be run using ``mpirun/mpiexec -n [ncores] python [filename].py``. This is ideal for large catalogue fits.
+* When using ``fit_catalogue``, the cript can be run using mpi4py to parallelise fits to individual cores. E.g., ``mpirun/mpiexec -n [ncores] python [filename].py``. This is ideal for large catalogue fits.
 
 Running Mimical with both of these options enabled is **untested** but probably infeasible.
 

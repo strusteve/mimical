@@ -1,8 +1,14 @@
 import numpy as np
-import os
+try:
+    from mpi4py import MPI
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+    size = comm.Get_size()
+except ImportError:
+    rank = 0
+    size = 1
 
 from .fit import fit
-from ..utils import mpi_split_array
 
 
 class fitCatalogue(object):
@@ -48,16 +54,13 @@ class fitCatalogue(object):
         self.load_psfs = load_psfs
         self.load_mimical_prior = load_mimical_prior
         self.kwargs = kwargs
+        self.done = np.zeros_like(self.id_list, dtype='int')
 
-    def run(self, mpi_serial=False, make_plots=False, **run_kwargs):
+    def run(self, **run_kwargs):
         """ Runs the nested sampler to sample models, and processes its output.
 
         Parameters
         ----------
-
-        mpi_serial : bool
-            Whether or not to split ID list among cores, must run script with
-            command 'mpirun/mpiexec -n [ncores] python [file]'
 
         n_live : int
             Number of live points in nested sampling algorithm.
@@ -66,22 +69,74 @@ class fitCatalogue(object):
             Save key plots.
         """
 
-        if not mpi_serial:
+        if size == 1:
             for id in self.id_list:
-                single = fit(id, self.load_images(id), self.load_filt_list(id),
-                             self.load_psfs(id), self.load_mimical_prior(id),
+                single = fit(id, self.load_images(id),
+                             self.load_filt_list(id),
+                             self.load_psfs(id),
+                             self.load_mimical_prior(id),
                              runtag="/"+self.runtag, **self.kwargs)
                 single.run(**run_kwargs)
-                if make_plots:
-                    single.save_plots()
+                single.save_output()
+            print(f'All {len(self.id_list)} objects done.')
 
         else:
-            id_core, rank = mpi_split_array(np.array((self.id_list)))
-            for id in id_core:
-                single = fit(id, self.load_images(id), self.load_filt_list(id),
-                             self.load_psfs(id), self.load_mimical_prior(id),
-                             runtag="/"+self.runtag, rank=f'_core{rank}',
-                             **self.kwargs)
-                single.run(**run_kwargs)
-                if make_plots:
-                    single.save_plots()
+            if rank == 0:
+                # give out first IDs to fit
+                for i in range(1, size):
+                    if np.min(self.done) == 0:
+                        new_id = self.id_list[np.argmin(self.done)]
+                        comm.send(new_id, dest=i)
+                        self.done[np.argmin(self.done)] = 1
+                    else:
+                        comm.send(None, dest=i)
+
+                # If all objects are done end
+                if np.min(self.done) == 2:
+                    return
+
+                while True:  # Add results to catalogue + distribute new IDs
+                    done_id, done_rank = comm.recv(source=MPI.ANY_SOURCE)
+                    # mark as done
+                    self.done[self.id_list == done_id] = 2
+
+                    # Send new ID to process
+                    if np.min(self.done) == 0:
+                        new_id = self.id_list[np.argmin(self.done != 0)]
+                        self.done[self.id_list == new_id] = 1
+                        comm.send(new_id, dest=done_rank)
+                    else:
+                        comm.send(None, dest=done_rank)
+
+                    # Load old ID into catalogue
+                    single = fit(done_id, self.load_images(done_id),
+                                 self.load_filt_list(done_id),
+                                 self.load_psfs(done_id),
+                                 self.load_mimical_prior(done_id),
+                                 runtag="/"+self.runtag, **self.kwargs)
+                    single.run(**run_kwargs)
+                    single.save_output(save_catalogue=True,
+                                       save_model=False,
+                                       save_plots=False)
+
+                    # if all objects done end
+                    if np.min(self.done) == 2:
+                        print(f'All {len(self.id_list)} objects done.')
+                        return
+
+            else:
+                while True:
+                    id = comm.recv(source=0)
+                    if id is None:
+                        return
+
+                    single = fit(id, self.load_images(id),
+                                 self.load_filt_list(id),
+                                 self.load_psfs(id),
+                                 self.load_mimical_prior(id),
+                                 runtag="/"+self.runtag, **self.kwargs)
+                    single.run(**run_kwargs)
+                    single.save_output(save_catalogue=False,
+                                       save_model=True,
+                                       save_plots=True)
+                    comm.send([id, rank], dest=0)
