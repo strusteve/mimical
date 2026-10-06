@@ -1,11 +1,6 @@
 import numpy as np
 
 
-def individual(unit_cube, param_prior_dist):
-    return ((unit_cube * (param_prior_dist[1]-param_prior_dist[0])) +
-            param_prior_dist[0])
-
-
 def polynomial(unit_cube, param_prior_dist, poly_order, wavs):
     """ Automatically sample the polynomial coefficient priors under the
     condition that the polyniomial starts and ends within the user specified

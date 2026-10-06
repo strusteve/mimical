@@ -42,7 +42,7 @@ def get_segmaps(id, wavs, images, filter_names, se_maxdist, runtag=''):
                         f"{dir_path}/mimical_output/sextractor/"
                         f"input_images{runtag}/{id}_{filter_names[i]}.fits",
                         "-c",
-                        f"{sextractor_dir}/jwst_default_segmap.config",
+                        f"{sextractor_dir}/custom.config",
                         "-FILTER_NAME",
                         f"{sextractor_dir}/gauss_2.5_5x5.conv",
                         "-PARAMETERS_NAME",
@@ -51,7 +51,7 @@ def get_segmaps(id, wavs, images, filter_names, se_maxdist, runtag=''):
                         f"{dir_path}/mimical_output/sextractor/"
                         f"cats{runtag}/{id}_{filter_names[i]}.cat",
                         "-CHECKIMAGE_TYPE",
-                        "SEGMENTATION,BACKGROUND_RMS",
+                        "SEGMENTATION,MINIBACK_RMS",
                         "-CHECKIMAGE_NAME",
                         f"{dir_path}/mimical_output/sextractor/"
                         f"segmaps{runtag}/{id}_{filter_names[i]}.fits,"

@@ -26,27 +26,28 @@ Mimical can be installed with pip:
 
 **Mimical prior**
 
-Below is an example ``mimical_prior`` for a run using the default Sersic submodel. The first set of element keys must have ``'source'`` and themselves contain keys that match the submodel parameter names. Users can include any number of these to fit multiple-component models. Following this, the next element, named ``psf_pa``, traces the rotation of the PSF. The final two elements must be named ``rms`` and ``counts_per_flux``.
+Below is an example ``mimical_prior`` for a run using the default Sersic submodel. The first set of element keys must have ``'source'`` and themselves contain keys that match the submodel parameter names. Users can include any number of these to fit multiple-component models. Following this, the next element, named ``psf_pa``, traces the rotation of the PSF. The final three elements must be named ``bg``, ``rms`` and ``counts_per_flux``.
 
 .. code::
      
      source_1 = {}
      source_1['model'] = mimical.Sersic()
-     source_1['mag'] = ((0, 1), 'Individual')
-     source_1['r_eff'] = ((0, 50), 'Polynomial', 1)
-     source_1['n'] = ((0.1, 10), 'Polynomial', 1)
-     source_1['x_0'] = ((48, 52), 'Polynomial', 0)
-     source_1['y_0'] = ((48, 52), 'Polynomial', 0)
-     source_1['ellip'] = ((0,0.75), 'Polynomial', 0)
-     source_1['theta'] = ((0, np.pi), 'Polynomial', 0)
+     source_1['mag'] = uniform(20, 25)
+     source_1['r_eff'] = ((0.1, 20), 'polynomial', 1)
+     source_1['n'] = ((0.1, 10), 'polynomial', 1)
+     source_1['x_0'] = norm(50, 3)
+     source_1['y_0'] = norm(50, 3)
+     source_1['ellip'] = uniform(0, 0.9)
+     source_1['theta'] = uniform(0, np.pi)
 
      mimical_prior = {}
      mimical_prior['source_1'] = source_1
-     mimical_prior['psf_pa'] = ((-180, 180), 'Polynomial', 0)
-     mimical_prior['rms'] = ('Infer', 'Individual')
-     mimical_prior['counts_per_flux'] = (cpf_list, 'Individual')
+     mimical_prior['psf_pa'] = uniform(-180, 180)
+     mimical_prior['bg'] = 0.
+     mimical_prior['rms'] = 'infer'
+     mimical_prior['counts_per_flux'] = cpf_list
 
-The ``rms`` parameter traces the RMS noise in the image; this can be fit with Mimical but it is **highly recommended to fix it** in order to reduce dimensionality (see **Fixing parameters**), either by passing it in as a ``float`` / ``array`` / ``list`` of ``floats`` / ``list`` of ``arrays`` of the same length and shape as ``images``, or by selecting the special Mimical prior type ``'Infer'`` which automatically calculates the RMS of the image background as identified by SourceExtractor.
+The ``bg`` parameter traces the background level in the image, set to zero if you trust the background subtraction. The ``rms`` parameter traces the RMS noise in the image; this can be fit with Mimical but it is **highly recommended to fix it** if known in order to reduce dimensionality (see **Fixing parameters**), either by passing it in as a ``float`` / ``array`` / ``list`` of ``floats`` / ``list`` of ``arrays`` of the same length and shape as ``images``, or by selecting the special Mimical prior type ``'infer'`` which automatically calculates the RMS of the image background as identified by SourceExtractor.
 
 Similarly for ``counts_per_flux``, which allows Mimical to associate poisson uncertainty with the generated model, it is recommended to fix it to a provided quantity (``float`` / ``array`` / ``list`` of ``floats`` / ``list`` of ``arrays`` of the same length and shape as ``images``). This may be challenging to derive, but can be provided by the user with information on the gain, exposure time, etc. To neglect poisson uncertainty, this should be set to a high number (but not too high to effect numerical overflow) e.g. 1e50.
 
@@ -61,7 +62,7 @@ Similarly for ``counts_per_flux``, which allows Mimical to associate poisson unc
 
 **Fixing parameters**
 
-You can fix any of the parameters in the Mimical prior by setting the first element in the parameter tuple equal to either a float / int / list. For instance, to keep ``x_0`` constant across all images, one would pass a float/int and choose the options ``(float/int, 'Polynomial', 0)``. Or, to supply the ``RMS`` for each image separately, one would pass a 1d array or 3D image cube of length N\ :sub:`filters`\  and choose the options ``(array, 'Individual')``. If the user supplies an image cube for ``RMS`` and/or ``counts-per-flux``, these must be the same shape as the ``images``, and while the corner plot samples will show the mean of these images for generality, the full arrays will be parsed in the likelihood function.
+You can fix any of the parameters in the Mimical prior by setting the parameter prior to either a float/int (constant across images) or a list (spcific to each image). For instance, to keep ``x_0`` constant across all images, one would pass a float/int. Or, to supply the ``RMS`` for each image separately, one would pass a list of floats or lost of images of length N\ :sub:`filters`\. If the user supplies an image cube for ``RMS`` and/or ``counts-per-flux``, these must be the same shape as the ``images``, and while the corner plot samples will show the mean of these images for generality, the full arrays will be parsed in the likelihood function.
 
 
 **Parallelisation**

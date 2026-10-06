@@ -1,8 +1,5 @@
 from .filter_set import filter_set
 
-from .mpitools import mpi_split_array
-from .mpitools import mpi_split_array
-
 from .get_segmaps import get_segmaps, dilute_segmaps
 
 from .oversampling_table import make_oversampling_table

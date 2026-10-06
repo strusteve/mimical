@@ -153,11 +153,10 @@ class fit(object):
             self.contmaps = np.ones_like(self.images)
 
         # If inferring background, set
-        if isinstance(self.mimical_prior['rms'][0], str):
-            if self.mimical_prior['rms'][0] == "Infer":
-                se_rms = []
+        if isinstance(self.mimical_prior['rms'], str):
+            if self.mimical_prior['rms'] == "infer":
+                infer_rms = []
                 for i in range(len(self.filter_names)):
-
                     try:
                         rmsmap = fits.open(f"{dir_path}/mimical_output/"
                                            f"sextractor/rmsmaps{runtag}/{id}_"
@@ -166,18 +165,20 @@ class fit(object):
                     except FileNotFoundError:
                         raise Exception("Must select se_clean=True to run"
                                         " RMS type 'Infer'.")
-                    se_rms.append(rmsmap)
+                    infer_rms.append(np.median(rmsmap))
 
-                    # rmsmap = np.std(self.images[i][self.bgmaps[i]==1])
-                    # se_rms.append(rmsmap)
-
-                self.mimical_prior['rms'] = (se_rms, 'Individual')
+                self.mimical_prior['rms'] = infer_rms
 
         # Initiate the prior handler object, used to parse and translate priors
-        self.phandler = priorHandler(self.mimical_prior, self.filter_names,
-                                     self.wavs, self.images, self.runtag,
+        self.phandler = priorHandler(self.mimical_prior,
+                                     self.mimical_keys,
+                                     self.filter_names,
+                                     self.wavs,
+                                     self.images,
+                                     self.runtag,
                                      self.id)
         self.sampler_prior_keys = self.phandler.keys
+
         print(f"\nFitting object {self.id} with"
               f" -{self.phandler.nsources}- parameter submodels with"
               f" -{self.phandler.nparam}- parameter Mimical fit with "
@@ -196,53 +197,70 @@ class fit(object):
         # Translate unit cube prior sample into Mimical prior sample
         reverted = self.phandler.revert(param_vec)
 
-        # Check if sampled model paramters are all within bounds
+        # If using relationships, check in bounds.
         voidcount = -1
         for key in self.mimical_prior.keys():
             if isinstance(self.mimical_prior[key], dict):
                 for subkey in self.mimical_prior[key].keys():
                     voidcount += 1
-                    bounds = self.mimical_prior[key][subkey][0]
-                    if isinstance(bounds, tuple):
-                        if (any(reverted[:, voidcount] < bounds[0])) | \
-                           (any(reverted[:, voidcount] > bounds[1])):
-                            print('Unphysical model detected.')
-                            return 'void', 'void'
-                    else:
-                        continue
+                    param_prior = self.mimical_prior[key][subkey]
+                    if isinstance(param_prior, tuple):
+                        if isinstance(param_prior[1], str):
+                            bounds = self.mimical_prior[key][subkey][0]
+                            if isinstance(bounds, tuple):
+                                if ((any(reverted[:, voidcount] < bounds[0]) |
+                                     any(reverted[:, voidcount] > bounds[1]))):
+                                    print('Unphysical model detected.')
+                                    return 'void', 'void'
             else:
                 voidcount += 1
-                bounds = self.mimical_prior[key][0]
-                if isinstance(bounds, tuple):
-                    if (any(reverted[:, voidcount] < bounds[0])) | \
-                       (any(reverted[:, voidcount] > bounds[1])):
-                        print('Unphysical model detected.')
-                        return 'void', 'void'
-                else:
-                    continue
+                param_prior = self.mimical_prior[key]
+                if (isinstance(param_prior, tuple)):
+                    if isinstance(param_prior[1], str):
+                        bounds = self.mimical_prior[key][0]
+                        if isinstance(bounds, tuple):
+                            if ((any(reverted[:, voidcount] < bounds[0]) |
+                                 any(reverted[:, voidcount] > bounds[1]))):
+                                print('Unphysical model detected.')
+                                return 'void', 'void'
 
         # Pull out model and mimical parameters
         modelpars = reverted[:, :np.sum(self.phandler.nsources)]
         psfarr = reverted[:, np.sum(self.phandler.nsources)]
-        rmsarr = reverted[:, np.sum(self.phandler.nsources)+1]
-        cpfarr = reverted[:, np.sum(self.phandler.nsources)+2]
+        bgarr = reverted[:, np.sum(self.phandler.nsources)+1]
+        rmsarr = reverted[:, np.sum(self.phandler.nsources)+2]
+        cpfarr = reverted[:, np.sum(self.phandler.nsources)+3]
 
         # If user provides RMS per pixel, override prior sample
-        if isinstance(self.mimical_prior['rms'][0], list):
-            if isinstance(self.mimical_prior['rms'][0][0], np.ndarray):
-                rmsarr = np.array(self.mimical_prior['rms'][0])
-        # If user wants mimical to infer RMS from image background, do so
-        elif (isinstance(self.mimical_prior['rms'][0], str)):
-            if (self.mimical_prior['rms'][0] == "Infer"):
-                if not self.se_clean:
-                    raise Exception("If using the 'Infer' special type for " +
-                                    "RMS, must set se_clean=True.")
-
-        # If user provides counts-per-flux per pixel, override prior sample
-        if isinstance(self.mimical_prior['counts_per_flux'][0], list):
-            if isinstance(self.mimical_prior['counts_per_flux'][0][0],
+        if isinstance(self.mimical_prior['bg'],
+                      (np.ndarray, list)):
+            if isinstance(self.mimical_prior['bg'],
                           np.ndarray):
-                cpfarr = np.array(self.mimical_prior['counts_per_flux'][0])
+                bgarr = self.mimical_prior['bg']
+            elif isinstance(self.mimical_prior['bg'], list):
+                if isinstance(self.mimical_prior['bg'][0],
+                              np.ndarray):
+                    bgarr = np.array(self.mimical_prior['bg'])
+        if isinstance(self.mimical_prior['rms'],
+                      (np.ndarray, list)):
+            if isinstance(self.mimical_prior['rms'],
+                          np.ndarray):
+                rmsarr = self.mimical_prior['rms']
+            elif isinstance(self.mimical_prior['rms'],
+                            list):
+                if isinstance(self.mimical_prior['rms'][0],
+                              np.ndarray):
+                    rmsarr = np.array(self.mimical_prior['rms'])
+        if isinstance(self.mimical_prior['counts_per_flux'],
+                      (np.ndarray, list)):
+            if isinstance(self.mimical_prior['counts_per_flux'],
+                          np.ndarray):
+                cpfarr = self.mimical_prior['counts_per_flux']
+            elif isinstance(self.mimical_prior['counts_per_flux'],
+                            list):
+                if isinstance(self.mimical_prior['counts_per_flux'][0],
+                              np.ndarray):
+                    cpfarr = np.array(self.mimical_prior['counts_per_flux'])
 
         # Update the model for sampled parameters
         newpars = torch.tensor(modelpars.astype(np.float32), device=self.accel)
@@ -259,14 +277,26 @@ class fit(object):
         # Discretize model to grid
         model = self.image_models.render().cpu().numpy()
 
+        # reshape modifiers
+        if len(bgarr.shape) == 1:
+            bgarr = np.broadcast_to(bgarr[:, None, None], model.shape)
+        if len(rmsarr.shape) == 1:
+            rmsarr = np.broadcast_to(rmsarr[:, None, None], model.shape)
+        if len(cpfarr.shape) == 1:
+            cpfarr = np.broadcast_to(cpfarr[:, None, None], model.shape)
+
+        # Add the sky background
+        model += bgarr
+
         # If the model has NaNs, set to zero and blow up errors.
         if np.isnan(np.sum(model)):
             return 'void', 'void'
 
         # Calculate the error by the quadrature sum of rms and poisson errors
         else:
-            sigma = np.sqrt(rmsarr.T**2 +
-                            ((cpfarr.T**(-1/2))*np.sqrt(np.abs(model.T)))**2).T
+            sigma = np.sqrt(rmsarr**2 +
+                            ((cpfarr**(-1/2)) *
+                             np.sqrt(np.abs(model)))**2)
 
         # Calculate the 3D mask
         contmask = self.contmaps == 1
@@ -474,6 +504,7 @@ class fit(object):
                                        size=n_post, p=np.exp(raw_log_w))
             self.samples = raw_points[indices]
             self.log_l = raw_log_l[indices]
+
             # Save the sampled points and corresponding log-weights
             posterior = np.c_[self.samples, self.log_l,
                               [int(self.success)]*len(self.log_l)]
@@ -563,7 +594,7 @@ class fit(object):
                                         self.phandler.revert(p).flatten(), 1,
                                         self.samples)
         samp_filt = samp_filt.reshape(self.samples.shape[0], len(self.wavs),
-                                      np.sum(self.phandler.nsources)+3)
+                                      np.sum(self.phandler.nsources)+4)
         quan = np.percentile(samp_filt, q=(16, 50, 84), axis=0)
         dic = {"id": self.id}
         for j in range(len(self.wavs)):

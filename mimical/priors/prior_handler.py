@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 
-from .prior_types import individual, polynomial, powerlaw
+from .prior_relationships import polynomial, powerlaw
 
 dir_path = os.getcwd()
 
@@ -37,22 +37,14 @@ class priorHandler(object):
         An ID for the fitting run. Only really used for output files.
     """
 
-    def __init__(self, mimical_prior, filter_names, wavs,
+    def __init__(self, mimical_prior, mimical_keys, filter_names, wavs,
                  images, runtag, id):
         self.mimical_prior = mimical_prior
-        self.mimical_keys = []
-        for key in self.mimical_prior.keys():
-            if isinstance(self.mimical_prior[key], dict):
-                for subkey in self.mimical_prior[key].keys():
-                    self.mimical_keys.append(f"{key}:{subkey}")
-            else:
-                self.mimical_keys.append(key)
-
+        self.mimical_keys = mimical_keys
         self.filter_names = filter_names
         self.wavs = wavs
         self.nsources, self.nparam, self.ndim, \
             self.keys, self.smask = self.calculate_dimensionality()
-
         self.images = images
         self.runtag = runtag
         self.id = id
@@ -77,217 +69,181 @@ class priorHandler(object):
                 for sourcekey in sourcedic.keys():
 
                     # Load in the Mimical prior element
-                    param_prior_traits = sourcedic[sourcekey]
-                    prior_dist = param_prior_traits[0]
+                    param_prior = sourcedic[sourcekey]
 
-                    # For fitted params
-                    if isinstance(prior_dist, tuple):
+                    # If same prior for each image
+                    if ((callable(param_prior) |
+                         isinstance(param_prior,
+                                    (int, float, np.ndarray)))):
+                        # Fitted
+                        if callable(param_prior):
+                            theta[thetac] = param_prior(x[xcount])
+                            xcount += 1
+                            thetac += 1
+                        # Fixed
+                        else:
+                            if isinstance(param_prior, (int, float)):
+                                theta[thetac] = param_prior
+                            elif isinstance(param_prior, (np.ndarray)):
+                                theta[thetac] = np.mean(param_prior)
+                            thetac += 1
 
-                        param_fit_type = param_prior_traits[1]
+                    # If different prior for each image
+                    elif (isinstance(param_prior, (tuple, list)) &
+                          (not isinstance(param_prior[1], str))):
+                        if ((callable(param_prior[0]) |
+                             isinstance(param_prior, list))):
+                            for i in range(len(self.wavs)):
+                                # Fitted
+                                if callable(param_prior[0]):
+                                    theta[thetac] = param_prior[i](x[xcount])
+                                    xcount += 1
+                                # Fixed
+                                elif isinstance(param_prior, list):
+                                    if isinstance(param_prior[i],
+                                                  (int, float)):
+                                        theta[thetac] = param_prior[i]
+                                    elif isinstance(param_prior[i],
+                                                    np.ndarray):
+                                        theta[thetac] = np.mean(param_prior[i])
+                                else:
+                                    raise Exception('Prior syntax error.')
+                                thetac += 1
 
-                        # If user specifies 'Individual', add a free parameter
-                        # for each filter.
-                        if param_fit_type == "Individual":
-                            indysamps = individual(x[xcount:
-                                                     xcount+len(self.wavs)],
-                                                   prior_dist)
-                            theta[thetac:thetac+len(self.wavs)] = indysamps
-                            thetac += len(self.wavs)
-                            xcount += len(self.wavs)
-
-                        # If user specifies 'Polynomial', add a free parameter
-                        # for each polynomial coefficient.
-                        elif param_fit_type == "Polynomial":
-                            poly_order = param_prior_traits[2]
-                            polysamps = polynomial(x[xcount:
-                                                     xcount+poly_order+1],
-                                                   prior_dist, poly_order,
-                                                   self.wavs)
+                    # If relationship is set
+                    elif (isinstance(param_prior, tuple) &
+                          isinstance(param_prior[1], str)):
+                        if param_prior[1] == 'polynomial':
+                            poly_order = param_prior[2]
+                            # Fitted
+                            if isinstance(param_prior[0], tuple):
+                                polysamps = polynomial(x[xcount:
+                                                         xcount+poly_order+1],
+                                                       param_prior[0],
+                                                       poly_order,
+                                                       self.wavs)
+                                xcount += poly_order+1
+                            # Fixed
+                            elif isinstance(param_prior[0], list):
+                                polysamps = param_prior[0]
+                            else:
+                                raise Exception('Prior syntax error.')
                             theta[thetac:thetac+poly_order+1] = polysamps
                             thetac += poly_order+1
-                            xcount += poly_order+1
 
-                        # If user specifies 'Power-law', add a free parameter
-                        # for each power law coefficient.
-                        elif param_fit_type == "Power-law":
-                            powerbounds = param_prior_traits[2]
-                            epsilon = param_prior_traits[3]
-                            plaw_samps = powerlaw(x[xcount:xcount+3],
-                                                  prior_dist, self.wavs,
-                                                  powerbounds, epsilon)
+                        elif param_prior[1] == 'power-law':
+                            powerbounds = param_prior[2]
+                            epsilon = param_prior[3]
+                            if isinstance(param_prior[0], tuple):
+                                plaw_samps = powerlaw(x[xcount:xcount+3],
+                                                      param_prior[0],
+                                                      self.wavs,
+                                                      powerbounds,
+                                                      epsilon)
+                                xcount += 3
+                            elif isinstance(param_prior[0], list):
+                                plaw_samps = param_prior[0]
+                            else:
+                                raise Exception('Prior syntax error.')
                             theta[thetac:thetac+3] = plaw_samps
                             thetac += 3
-                            xcount += 3
 
                         else:
-                            raise Exception("Fitting type not supported, "
+                            raise Exception("Relationship not supported, "
                                             "please choose either "
-                                            "'Individual', 'Polynomial' "
-                                            "or 'Power-law'.")
-
-                    # For fixed params
-                    elif isinstance(prior_dist,
-                                    (float, int, list, np.ndarray)):
-
-                        param_fit_type = param_prior_traits[1]
-
-                        # If fixed for each individual filter, set for each
-                        if (param_fit_type == "Individual"):
-
-                            if isinstance(prior_dist, (float, int)):
-                                theta[thetac:
-                                      thetac+len(self.wavs)] = prior_dist
-                                thetac += len(self.wavs)
-
-                            elif isinstance(prior_dist, list):
-                                if not isinstance(prior_dist[0], np.ndarray):
-                                    theta[thetac:
-                                          thetac+len(self.wavs)] = prior_dist
-                                    thetac += len(self.wavs)
-                                # If user supplies values for each image pixel
-                                # (pertinent for RMS etc.), then pass the mean
-                                # to the prior samples. This is required for
-                                # generality but is overwritten later in the
-                                # likelihood function.
-                                else:
-                                    meaner = np.mean(np.array((prior_dist)),
-                                                     axis=(1, 2))
-                                    theta[thetac:
-                                          thetac+len(self.wavs)] = meaner
-                                    thetac += len(self.wavs)
-
-                            else:
-                                raise Exception('Must pass float/int/list for '
-                                                'a multiband fit. The list can'
-                                                ' be a list of floats/ints or '
-                                                'a list of arrays.')
-
-                        # If user supplies polynomial coefficients, set them.
-                        elif param_fit_type == "Polynomial":
-                            poly_order = param_prior_traits[2]
-                            theta[thetac:
-                                  thetac+(poly_order+1)] = prior_dist
-                            thetac += (poly_order+1)
-
-                        # If user supplies power-law coefficients, set them.
-                        elif param_fit_type == "Power-law":
-                            theta[thetac:
-                                  thetac+3] = prior_dist
-                            thetac += 3
-
-                        else:
-                            raise Exception("Fitting type not supported, "
-                                            "please choose either "
-                                            "'Individual', 'Polynomial' "
-                                            "or 'Power-law'.")
+                                            "'polynomial' or 'power-law'.")
+                    else:
+                        raise Exception("Invalid prior syntax")
 
             elif (('psf_pa' in key) |
+                  ('bg' in key) |
                   ('rms' in key) |
                   ('counts_per_flux' in key)):
 
                 # Load in the Mimical prior element
-                param_prior_traits = self.mimical_prior[key]
-                prior_dist = param_prior_traits[0]
+                param_prior = self.mimical_prior[key]
 
-                # For fitted params
-                if isinstance(prior_dist, tuple):
-
-                    param_fit_type = param_prior_traits[1]
-
-                    # If user specifies 'Individual', add a free parameter for
-                    # each filter.
-                    if param_fit_type == "Individual":
-                        indysamp = individual(x[xcount:xcount+len(self.wavs)],
-                                              prior_dist)
-                        theta[thetac:thetac+len(self.wavs)] = indysamp
-                        thetac += len(self.wavs)
-                        xcount += len(self.wavs)
-
-                    # If user specifies 'Polynomial', add a free parameter for
-                    # each polynomial coefficient.
-                    elif param_fit_type == "Polynomial":
-                        poly_order = param_prior_traits[2]
-                        polysamp = polynomial(x[xcount:xcount+poly_order+1],
-                                              prior_dist, poly_order,
-                                              self.wavs)
-                        theta[thetac:thetac+poly_order+1] = polysamp
-                        thetac += poly_order+1
-                        xcount += poly_order+1
-
-                    # If user specifies 'Power-law', add three free parameters.
-                    elif param_fit_type == "Power-law":
-                        powerbounds = param_prior_traits[2]
-                        epsilon = param_prior_traits[3]
-                        theta[thetac:
-                              thetac+3] = powerlaw(x[xcount:xcount+3],
-                                                   prior_dist, self.wavs,
-                                                   powerbounds, epsilon)
-                        thetac += 3
-                        xcount += 3
-
+                # If same prior for each image
+                if ((callable(param_prior) |
+                     isinstance(param_prior, (int, float, np.ndarray)))):
+                    # Fitted
+                    if callable(param_prior):
+                        theta[thetac] = param_prior(x[xcount])
+                        xcount += 1
+                        thetac += 1
+                    # Fixed
                     else:
-                        raise Exception("Fitting type not supported, please "
-                                        "choose either 'Individual', "
-                                        "'Polynomial' or 'Power-law'.")
+                        if isinstance(param_prior, (int, float)):
+                            theta[thetac] = param_prior
+                        elif isinstance(param_prior, (np.ndarray)):
+                            theta[thetac] = np.mean(param_prior)
+                        thetac += 1
 
-                # For fixed params
-                elif isinstance(prior_dist, (float, int, list, np.ndarray)):
-
-                    param_fit_type = param_prior_traits[1]
-
-                    # If fixed for each individual filter, set for each
-                    if (param_fit_type == "Individual"):
-
-                        if isinstance(prior_dist, (float, int)):
-                            theta[thetac:
-                                  thetac+len(self.wavs)] = prior_dist
-                            thetac += len(self.wavs)
-
-                        elif isinstance(prior_dist, list):
-                            if not isinstance(prior_dist[0], np.ndarray):
-                                theta[thetac:
-                                      thetac+len(self.wavs)] = prior_dist
-                                thetac += len(self.wavs)
-                            # If user supplies values for each image pixel
-                            # (pertinent for RMS etc.), then pass the mean
-                            # to the prior samples. This is required for
-                            # generality but is overwritten later in the
-                            # likelihood function.
+                # If different prior for each image
+                elif (isinstance(param_prior, (tuple, list)) &
+                      (not isinstance(param_prior[1], str))):
+                    if ((callable(param_prior[0]) |
+                         isinstance(param_prior, list))):
+                        for i in range(len(self.wavs)):
+                            # Fitted
+                            if callable(param_prior[0]):
+                                theta[thetac] = param_prior[i](x[xcount])
+                                xcount += 1
+                            # Fixed
+                            elif isinstance(param_prior, list):
+                                if isinstance(param_prior[i], (int, float)):
+                                    theta[thetac] = param_prior[i]
+                                elif isinstance(param_prior[i], np.ndarray):
+                                    theta[thetac] = np.mean(param_prior[i])
                             else:
-                                meaner = np.mean(np.array((prior_dist)),
-                                                 axis=(1, 2))
-                                theta[thetac:
-                                      thetac+len(self.wavs)] = meaner
-                                thetac += len(self.wavs)
+                                raise Exception('Prior syntax error.')
+                            thetac += 1
 
+                # If relationship is set
+                elif (isinstance(param_prior, tuple) &
+                      isinstance(param_prior[1], str)):
+                    if param_prior[1] == 'polynomial':
+                        poly_order = param_prior[2]
+                        # Fitted
+                        if isinstance(param_prior[0], tuple):
+                            polysamps = polynomial(x[xcount:
+                                                     xcount+poly_order+1],
+                                                   param_prior[0],
+                                                   poly_order,
+                                                   self.wavs)
+                            xcount += poly_order+1
+                        # Fixed
+                        elif isinstance(param_prior[0], list):
+                            polysamps = param_prior[0]
                         else:
-                            raise Exception('Must pass float/int/list for a '
-                                            'multiband fit. The list can be a '
-                                            'list of floats/ints or a list of '
-                                            'arrays.')
+                            raise Exception('Prior syntax error.')
+                        theta[thetac:thetac+poly_order+1] = polysamps
+                        thetac += poly_order+1
 
-                    # If user supplies polynomial coefficients, set them.
-                    elif param_fit_type == "Polynomial":
-                        poly_order = param_prior_traits[2]
-                        theta[thetac:
-                              thetac+(poly_order+1)] = prior_dist
-                        thetac += (poly_order+1)
-
-                    # If user supplies power-law coefficients, set them.
-                    elif param_fit_type == "Power-law":
-                        theta[thetac:thetac+3] = prior_dist
+                    elif param_prior[1] == 'power-law':
+                        powerbounds = param_prior[2]
+                        epsilon = param_prior[3]
+                        if isinstance(param_prior[0], tuple):
+                            plaw_samps = powerlaw(x[xcount:xcount+3],
+                                                  param_prior[0],
+                                                  self.wavs,
+                                                  powerbounds,
+                                                  epsilon)
+                            xcount += 3
+                        elif isinstance(param_prior[0], list):
+                            plaw_samps = param_prior[0]
+                        else:
+                            raise Exception('Prior syntax error.')
+                        theta[thetac:thetac+3] = plaw_samps
                         thetac += 3
 
                     else:
-                        raise Exception("Fitting type not supported, please "
-                                        "choose either 'Individual', "
-                                        "'Polynomial' or 'Power-law'.")
+                        raise Exception("Relationship not supported, "
+                                        "please choose either "
+                                        "'polynomial' or 'power-law'.")
 
-            # For wrongly inputted prior types
-            else:
-                raise Exception("Mimical only accepts a min/max tuple for "
-                                "fitting, or a list/ndarray/float/int for "
-                                "fixing.")
+                else:
+                    raise Exception("Invalid prior syntax")
 
         return theta
 
@@ -296,7 +252,7 @@ class priorHandler(object):
         each filter."""
 
         # Empty parameter array
-        params_final = np.zeros((len(self.wavs), np.sum(self.nsources)+3))
+        params_final = np.zeros((len(self.wavs), np.sum(self.nsources)+4))
         ind = 0
         count = 0
 
@@ -311,21 +267,83 @@ class priorHandler(object):
                 for sourcekey in sourcedic.keys():
 
                     # Load in the Mimical prior element
-                    param_prior_traits = sourcedic[sourcekey]
-                    prior_dist = param_prior_traits[0]
-                    param_fit_type = param_prior_traits[1]
+                    param_prior = sourcedic[sourcekey]
 
-                    # If individual, add the sample for each filter
-                    if param_fit_type == "Individual":
+                    if ((callable(param_prior) |
+                         isinstance(param_prior, (int, float, np.ndarray)))):
+                        params_final[:, ind] = param_dict[count]
+                        ind += 1
+                        count += 1
+
+                    elif (isinstance(param_prior, (tuple, list)) &
+                          (not isinstance(param_prior[1], str))):
                         params_final[:, ind] = param_dict[count:
                                                           count+len(self.wavs)]
                         ind += 1
                         count += len(self.wavs)
 
-                    # If polynomial, calculate the expected parameter in each
-                    # filter given its effective wavlength
-                    elif param_fit_type == "Polynomial":
-                        poly_order = param_prior_traits[2]
+                    # If relationship is set
+                    elif (isinstance(param_prior, tuple) &
+                          isinstance(param_prior[1], str)):
+                        if param_prior[1] == 'polynomial':
+                            poly_order = param_prior[2]
+                            coeffs = param_dict[count:count+poly_order+1]
+                            tiler = np.tile(self.wavs-self.wavs[0],
+                                            (poly_order+1, 1)).T
+                            polywavs = np.pow(tiler, np.arange(poly_order+1))
+                            comps = coeffs * polywavs
+                            comps_summed = np.sum(comps, axis=1)
+                            params_final[:, ind] = comps_summed
+                            ind += 1
+                            count += poly_order+1
+
+                        elif param_prior[1] == 'power-law':
+                            epsilon = param_prior[3]
+                            coeffs = param_dict[count:count+3]
+                            tiler = np.tile(((self.wavs-self.wavs[0])
+                                             + epsilon) /
+                                            ((self.wavs[-1]-self.wavs[0])
+                                             + epsilon),
+                                            (2, 1)).T
+                            polywavs = np.pow(tiler, np.array([0, coeffs[2]]))
+                            comps = np.array([coeffs[0],
+                                             coeffs[1]-coeffs[0]]) * polywavs
+                            comps_summed = np.sum(comps, axis=1)
+                            params_final[:, ind] = comps_summed
+                            ind += 1
+                            count += 3
+
+                        else:
+                            raise Exception("Relationship not supported, "
+                                            "please choose either "
+                                            "'polynomial' or 'power-law'.")
+
+            elif (('psf_pa' in keys[i]) |
+                  ('bg' in keys[i]) |
+                  ('rms' in keys[i]) |
+                  ('counts_per_flux' in keys[i])):
+
+                # Load in the Mimical prior element
+                param_prior = self.mimical_prior[keys[i]]
+
+                if ((callable(param_prior) |
+                     isinstance(param_prior, (int, float, np.ndarray)))):
+                    params_final[:, ind] = param_dict[count]
+                    ind += 1
+                    count += 1
+
+                elif (isinstance(param_prior, (tuple, list)) &
+                      (not isinstance(param_prior[1], str))):
+                    params_final[:, ind] = param_dict[count:
+                                                      count+len(self.wavs)]
+                    ind += 1
+                    count += len(self.wavs)
+
+                # If relationship is set
+                elif (isinstance(param_prior, tuple) &
+                      isinstance(param_prior[1], str)):
+                    if param_prior[1] == 'polynomial':
+                        poly_order = param_prior[2]
                         coeffs = param_dict[count:count+poly_order+1]
                         tiler = np.tile(self.wavs-self.wavs[0],
                                         (poly_order+1, 1)).T
@@ -336,77 +354,24 @@ class priorHandler(object):
                         ind += 1
                         count += poly_order+1
 
-                    # If power-law, calculate the expected parameter in each
-                    # filter given its effective wavlength
-                    elif param_fit_type == "Power-law":
-                        epsilon = param_prior_traits[3]
+                    elif param_prior[1] == 'power-law':
+                        epsilon = param_prior[3]
                         coeffs = param_dict[count:count+3]
                         tiler = np.tile(((self.wavs-self.wavs[0])+epsilon) /
                                         ((self.wavs[-1]-self.wavs[0])+epsilon),
                                         (2, 1)).T
                         polywavs = np.pow(tiler, np.array([0, coeffs[2]]))
                         comps = np.array([coeffs[0],
-                                          coeffs[1]-coeffs[0]]) * polywavs
+                                         coeffs[1]-coeffs[0]]) * polywavs
                         comps_summed = np.sum(comps, axis=1)
                         params_final[:, ind] = comps_summed
                         ind += 1
                         count += 3
 
                     else:
-                        raise Exception("Fitting type not supported, please "
-                                        "choose either 'Individual', "
-                                        "'Polynomial' or 'Power-law'.")
-
-            elif (('psf_pa' in keys[i]) |
-                  ('rms' in keys[i]) |
-                  ('counts_per_flux' in keys[i])):
-
-                # Load in the Mimical prior element
-                param_prior_traits = self.mimical_prior[keys[i]]
-                param_fit_type = param_prior_traits[1]
-
-                # If individual, add the sample for each filter
-                if param_fit_type == "Individual":
-                    params_final[:, ind] = param_dict[count:
-                                                      count+len(self.wavs)]
-                    ind += 1
-                    count += len(self.wavs)
-
-                # If polynomial, calculate the expected parameter in each
-                # filter given its effective wavlength
-                elif param_fit_type == "Polynomial":
-                    poly_order = param_prior_traits[2]
-                    coeffs = param_dict[count:count+poly_order+1]
-                    polywavs = np.pow(np.tile(self.wavs-self.wavs[0],
-                                              (poly_order+1, 1)).T,
-                                      np.arange(poly_order+1))
-                    comps = coeffs * polywavs
-                    comps_summed = np.sum(comps, axis=1)
-                    params_final[:, ind] = comps_summed
-                    ind += 1
-                    count += poly_order+1
-
-                # If power-law, calculate the expected parameter in each
-                # filter given its effective wavlength.
-                elif param_fit_type == "Power-law":
-                    epsilon = param_prior_traits[3]
-                    coeffs = param_dict[count:count+3]
-                    tiler = np.tile(((self.wavs-self.wavs[0])+epsilon) /
-                                    ((self.wavs[-1]-self.wavs[0])+epsilon),
-                                    (2, 1)).T
-                    polywavs = np.pow(tiler, np.array([0, coeffs[2]]))
-                    comps = np.array([coeffs[0],
-                                      coeffs[1]-coeffs[0]]) * polywavs
-                    comps_summed = np.sum(comps, axis=1)
-                    params_final[:, ind] = comps_summed
-                    ind += 1
-                    count += 3
-
-                else:
-                    raise Exception("Fitting type not supported, please "
-                                    "choose either 'Individual', "
-                                    "'Polynomial' or 'Power-law'.")
-
+                        raise Exception("Relationship not supported, "
+                                        "please choose either "
+                                        "'polynomial' or 'power-law'.")
         return params_final
 
     def calculate_dimensionality(self):
@@ -433,146 +398,135 @@ class priorHandler(object):
                     nsources[sourcecount-1] += 1
 
                     # Load in the Mimical prior element
-                    param_prior_traits = sourcedic[sourcekey]
-                    prior_dist = param_prior_traits[0]
+                    param_prior = sourcedic[sourcekey]
 
-                    # For fitted params
-                    if isinstance(prior_dist, tuple):
+                    # If same prior for each image
+                    if ((callable(param_prior) |
+                         isinstance(param_prior, (int, float)))):
+                        if callable(param_prior):
+                            nparam += 1
+                            ndim += 1
+                            keys.append(f'{key}:{sourcekey}')
+                            smask.append(True)
 
-                        param_fit_type = param_prior_traits[1]
+                        else:
+                            nparam += 1
+                            keys.append(f'{key}:{sourcekey}')
+                            smask.append(False)
 
-                        if param_fit_type == "Individual":
+                    # If different prior for each image
+                    elif (isinstance(param_prior, (tuple, list)) &
+                          (not isinstance(param_prior[1], str))):
+                        if ((callable(param_prior[0]) |
+                             isinstance(param_prior, list))):
                             for i in range(len(self.wavs)):
                                 keys.append(f'{key}:{sourcekey}_'
                                             f'{self.filter_names[i]}')
-                                smask.append(True)
                                 nparam += 1
-                                ndim += 1
+                                if callable(param_prior[i]):
+                                    smask.append(True)
+                                    ndim += 1
+                                else:
+                                    smask.append(False)
 
-                        elif param_fit_type == "Polynomial":
-                            poly_order = param_prior_traits[2]
+                    # If relationship is set
+                    elif (isinstance(param_prior, tuple) &
+                          isinstance(param_prior[1], str)):
+                        if param_prior[1] == 'polynomial':
+                            poly_order = param_prior[2]
                             for i in range(0, poly_order+1):
                                 keys.append(f'{key}:{sourcekey}_P{i}')
-                                smask.append(True)
                                 nparam += 1
-                                ndim += 1
+                                if isinstance(param_prior[0], tuple):
+                                    smask.append(True)
+                                    ndim += 1
+                                else:
+                                    smask.append(False)
 
-                        elif param_fit_type == "Power-law":
+                        elif param_prior[1] == 'power-law':
                             for i in range(3):
                                 keys.append(f'{key}:{sourcekey}_PL{i}')
-                                smask.append(True)
                                 nparam += 1
-                                ndim += 1
-
+                                if isinstance(param_prior[0], tuple):
+                                    smask.append(True)
+                                    ndim += 1
+                                else:
+                                    smask.append(False)
                         else:
-                            raise Exception("Fitting type not supported, "
+                            raise Exception("Relationship not supported, "
                                             "please choose either "
-                                            "'Individual', 'Polynomial'"
-                                            " or 'Power-law'.")
-                    # For fixed params
-                    elif isinstance(prior_dist, (float,
-                                                 int,
-                                                 list,
-                                                 np.ndarray)):
+                                            "'Polynomial' or 'Power-law'.")
 
-                        param_fit_type = param_prior_traits[1]
-
-                        if param_fit_type == "Individual":
-                            for i in range(len(self.wavs)):
-                                keys.append(f'{key}:{sourcekey}_'
-                                            f'{self.filter_names[i]}')
-                                smask.append(False)
-                                nparam += 1
-
-                        elif param_fit_type == "Polynomial":
-                            poly_order = param_prior_traits[2]
-                            for i in range(0, poly_order+1):
-                                keys.append(f'{key}:{sourcekey}_P{i}')
-                                smask.append(False)
-                                nparam += 1
-
-                        elif param_fit_type == "Power-law":
-                            for i in range(3):
-                                keys.append(f'{key}:{sourcekey}_PL{i}')
-                                smask.append(False)
-                                nparam += 1
-
-                        else:
-                            raise Exception("Fitting type not supported, "
-                                            "please choose either "
-                                            "'Individual', 'Polynomial'"
-                                            " or 'Power-law'.")
+                    else:
+                        raise Exception("Invalid prior syntax")
 
             elif (('psf_pa' in key) |
+                  ('bg' in key) |
                   ('rms' in key) |
                   ('counts_per_flux' in key)):
 
                 # Load in the Mimical prior element
-                param_prior_traits = self.mimical_prior[key]
-                prior_dist = param_prior_traits[0]
+                param_prior = self.mimical_prior[key]
 
-                # For fitted params
-                if isinstance(prior_dist, tuple):
-
-                    param_fit_type = param_prior_traits[1]
-
-                    if param_fit_type == "Individual":
-                        for i in range(len(self.wavs)):
-                            keys.append(f'{key}_{self.filter_names[i]}')
-                            smask.append(True)
-                            nparam += 1
-                            ndim += 1
-
-                    elif param_fit_type == "Polynomial":
-                        poly_order = param_prior_traits[2]
-                        for i in range(0, poly_order+1):
-                            keys.append(key+f'_C{i}')
-                            smask.append(True)
-                            nparam += 1
-                            ndim += 1
-
-                    elif param_fit_type == "Power-law":
-                        for i in range(3):
-                            keys.append(key+f'_P{i}')
-                            smask.append(True)
-                            nparam += 1
-                            ndim += 1
+                # If same prior for each image
+                if ((callable(param_prior) |
+                        isinstance(param_prior, (int, float, np.ndarray)))):
+                    if callable(param_prior):
+                        nparam += 1
+                        ndim += 1
+                        keys.append(f'{key}')
+                        smask.append(True)
 
                     else:
-                        raise Exception("Fitting type not supported, please "
-                                        "choose either 'Individual', "
-                                        "'Polynomial' or 'Power-law'.")
-                # For fixed params
-                elif isinstance(prior_dist, (float,
-                                             int,
-                                             list,
-                                             np.ndarray)):
+                        nparam += 1
+                        keys.append(f'{key}')
+                        smask.append(False)
 
-                    param_fit_type = param_prior_traits[1]
-
-                    if param_fit_type == "Individual":
+                # If different prior for each image
+                elif (isinstance(param_prior, (tuple, list)) &
+                      (not isinstance(param_prior[1], str))):
+                    if ((callable(param_prior[0]) |
+                         isinstance(param_prior, list))):
                         for i in range(len(self.wavs)):
-                            keys.append(f'{key}_{self.filter_names[i]}')
-                            smask.append(False)
+                            keys.append(f'{key}_'
+                                        f'{self.filter_names[i]}')
                             nparam += 1
+                            if callable(param_prior[i]):
+                                smask.append(True)
+                                ndim += 1
+                            else:
+                                smask.append(False)
 
-                    elif param_fit_type == "Polynomial":
-                        poly_order = param_prior_traits[2]
+                # If relationship is set
+                elif (isinstance(param_prior, tuple) &
+                      isinstance(param_prior[1], str)):
+                    if param_prior[1] == 'polynomial':
+                        poly_order = param_prior[2]
                         for i in range(0, poly_order+1):
-                            keys.append(key+f'_C{i}')
-                            smask.append(False)
+                            keys.append(f'{key}_P{i}')
                             nparam += 1
+                            if isinstance(param_prior[0], tuple):
+                                smask.append(True)
+                                ndim += 1
+                            else:
+                                smask.append(False)
 
-                    elif param_fit_type == "Power-law":
+                    elif param_prior[1] == 'power-law':
                         for i in range(3):
-                            keys.append(key+f'_P{i}')
-                            smask.append(False)
+                            keys.append(f'{key}_PL{i}')
                             nparam += 1
-
+                            if isinstance(param_prior[0], tuple):
+                                smask.append(True)
+                                ndim += 1
+                            else:
+                                smask.append(False)
                     else:
-                        raise Exception("Fitting type not supported, please "
-                                        "choose either 'Individual', "
+                        raise Exception("Relationship not supported, "
+                                        "please choose either "
                                         "'Polynomial' or 'Power-law'.")
+
+                else:
+                    raise Exception("Invalid prior syntax")
 
         return nsources, nparam, ndim, keys, smask
 
@@ -601,62 +555,19 @@ class priorHandler(object):
         else:
             raise Exception("'type' must be either 'sampler' or 'mimical'.")
 
-    def check_physical(self, samp_filt):
-        """ Check what fraction of Mimical prior samples are physical. """
-
-        n = len(samp_filt)
-        mask = np.arange(n) == np.arange(n)
-
-        for i in range(n):
-
-            sampshape = (len(self.wavs), len(list(self.mimical_keys)))
-            samples_now = samp_filt[i].reshape(*sampshape)
-
-            # Check if sampled model paramters are all within bounds
-            voidcount = -1
-            for key in self.mimical_prior.keys():
-                if isinstance(self.mimical_prior[key], dict):
-                    for subkey in self.mimical_prior[key].keys():
-                        voidcount += 1
-                        bounds = self.mimical_prior[key][subkey][0]
-                        if isinstance(bounds, tuple):
-                            if ((any(samples_now[:, voidcount] <
-                                     bounds[0])) |
-                                (any(samples_now[:, voidcount] >
-                                     bounds[1]))):
-                                mask[i] = False
-
-                        else:
-                            continue
-                else:
-                    voidcount += 1
-                    bounds = self.mimical_prior[key][0]
-                    if isinstance(bounds, tuple):
-                        if ((any(samples_now[:, voidcount] <
-                                 bounds[0])) |
-                            (any(samples_now[:, voidcount] >
-                                 bounds[1]))):
-                            mask[i] = False
-                    else:
-                        continue
-
-        print(np.sum(mask)/len(mask))
-        return mask
-
-    def plot_samples(self, n, key):
+    def plot_prior(self, n, key):
         """ Plot prior samples. """
 
         samp_filt, keys = self.check_priors(n=n, type='mimical')
-        mask = self.check_physical(samp_filt)
-        physical = samp_filt[mask]
+        physical = samp_filt
 
         fig, ax = plt.subplots()
 
         for i in range(len(physical)):
             curr_sample = physical[i].reshape(len(self.wavs),
                                               len(self.mimical_keys))
-            ofinterest = curr_sample[:, list(self.mimical_keys).index(key)]
-            ax.plot(self.wavs, ofinterest, color='black', alpha=1)
+            ofinterest = curr_sample[:, self.mimical_keys.index(key)]
+            ax.plot(self.wavs, ofinterest, color='black', alpha=0.5)
         ax.set_ylabel(key)
         ax.set_xlabel('$\\lambda$')
 
