@@ -250,7 +250,7 @@ def plot_trends(wavs, samples, mimical_prior, prior_handler, mimical_keys):
                                           1, samples)
     samples_mimical = samples_mimical.reshape(samples.shape[0],
                                               len(wavs),
-                                              np.sum(prior_handler.nsources)+4)
+                                              np.sum(prior_handler.nsources)+5)
 
     # Get model parameter posterior stats
     stats = np.percentile(samples_mimical, axis=0,

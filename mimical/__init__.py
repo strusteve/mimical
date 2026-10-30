@@ -20,3 +20,4 @@ from .fitting import fitCatalogue
 
 from .models import ImageModel
 from .models import Sersic, Point
+from .models import Kernels

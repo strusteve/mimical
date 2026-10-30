@@ -353,32 +353,20 @@ class ImageModel(object):
         return model_image
 
     def PSFconvolve(self, model_image, psf):
-        """ PSF convolution of an image cube using fast fourier transforms. """
-
-        # Take fast fourier transform of model image
-        # 1/3 time
-        img_fft = torch.fft.rfft2(model_image)
-
-        # Pad the PSF to match image shape with origin at image_shape // 2,
         # with thanks to https://stackoverflow.com/questions/54877892/
-        sz = model_image.shape[1:]
-        psf_shape = psf.shape[1:]
-        sz = (sz[0] - psf_shape[0], sz[1] - psf_shape[1])
-        psf = torch.nn.functional.pad(psf, ((sz[0]+1)//2, sz[0]//2,
-                                            (sz[1]+1)//2, sz[1]//2),
-                                      'constant')
 
-        # Shift the PSF image origin to the top left, required for Fourier
-        psf = torch.fft.ifftshift(psf, dim=(-2, -1))
+        # Pad to avoid wrapping around image edges
+        H, W = model_image.shape[-2:]
+        ph, pw = psf.shape[-2:]
+        fft_shape = (H + ph - 1, W + pw - 1)
 
-        # Take fast fourier transform of PSF image
-        # 1/3 time
-        psf = torch.fft.rfft2(psf, s=model_image.shape[1:])
+        # Fourier transform both the image and PSF
+        img_fft = torch.fft.rfft2(model_image, s=fft_shape)
+        # Don't shift the PSF origin, just crop the result
+        psf_fft = torch.fft.rfft2(psf, s=fft_shape)
 
-        # Convolve image and psf, then inverse fourier transform
-        conv_fft = img_fft * psf
+        # Convolve and inverse fourier transform 
+        conv_im = torch.fft.irfft2(img_fft * psf_fft, s=fft_shape)
 
-        # 1/3 time
-        conv_im = torch.fft.irfft2(conv_fft, s=model_image.shape[1:])
-
-        return conv_im
+        # Crop the shifted image
+        return conv_im[..., ph // 2 : ph // 2 + H, pw // 2 : pw // 2 + W]

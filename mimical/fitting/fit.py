@@ -7,6 +7,7 @@ import os
 import pandas as pd
 import torch
 from scipy.interpolate import RegularGridInterpolator as RGI
+from scipy.linalg import cholesky, solve_triangular
 from copy import deepcopy
 from astropy.table import Table
 from astropy.io import fits
@@ -20,6 +21,7 @@ from ..utils import dilute_segmaps
 from ..utils import make_oversampling_table
 from ..models.submodels import Sersic
 from ..models.imagemodel import ImageModel
+from ..models import Kernels
 
 dir_path = os.getcwd()
 install_dir = os.path.dirname(os.path.realpath(__file__))
@@ -211,7 +213,7 @@ class fit(object):
                                 if ((any(reverted[:, voidcount] < bounds[0]) |
                                      any(reverted[:, voidcount] > bounds[1]))):
                                     print('Unphysical model detected.')
-                                    return 'void', 'void'
+                                    return 'void', 'void', 'void'
             else:
                 voidcount += 1
                 param_prior = self.mimical_prior[key]
@@ -222,7 +224,7 @@ class fit(object):
                             if ((any(reverted[:, voidcount] < bounds[0]) |
                                  any(reverted[:, voidcount] > bounds[1]))):
                                 print('Unphysical model detected.')
-                                return 'void', 'void'
+                                return 'void', 'void', 'void'
 
         # Pull out model and mimical parameters
         modelpars = reverted[:, :np.sum(self.phandler.nsources)]
@@ -230,6 +232,7 @@ class fit(object):
         bgarr = reverted[:, np.sum(self.phandler.nsources)+1]
         rmsarr = reverted[:, np.sum(self.phandler.nsources)+2]
         cpfarr = reverted[:, np.sum(self.phandler.nsources)+3]
+        widths = reverted[:, np.sum(self.phandler.nsources)+4]
 
         # If user provides RMS per pixel, override prior sample
         if isinstance(self.mimical_prior['bg'],
@@ -290,7 +293,7 @@ class fit(object):
 
         # If the model has NaNs, set to zero and blow up errors.
         if np.isnan(np.sum(model)):
-            return 'void', 'void'
+            raise Exception('Generated model is not finite.')
 
         # Calculate the error by the quadrature sum of rms and poisson errors
         else:
@@ -298,47 +301,89 @@ class fit(object):
                             ((cpfarr**(-1/2)) *
                              np.sqrt(np.abs(model)))**2)
 
-        # Calculate the 3D mask
-        contmask = self.contmaps == 1
-        if rmsarr.shape == self.images.shape:
-            contmask *= rmsarr != 0
-        if cpfarr.shape == self.images.shape:
-            contmask *= cpfarr != 0
-
         # Calculate the filter specific likelihood and add to total
-        residuals = (self.images - model)[contmask]
-        sigma = sigma[contmask]
+        residuals = (self.images - model)
+        residuals[self.contmaps == 0.] = 0.
 
-        return residuals, sigma
+        #return residuals[contmask], sigma[contmask], widths
+        return residuals, sigma, widths
 
     def lnlike(self, param_vec):
         """ Returns the log-likelihood for a given parameter vector. """
 
-        t1 = time.time()
-        residuals, sigma = self.get_residuals(param_vec)
-
+        residuals, sigma, widths = self.get_residuals(param_vec)
         if isinstance(residuals, str):
             return -1e99
 
-        norm = np.log((1/(np.sqrt(2*np.pi*(sigma**2)))))
-        log_like_array = norm + ((-(residuals)**2) / (2*(sigma**2)))
-        log_like = np.sum(log_like_array)
+        total_like = 0.0
 
-        self.calls += 1
-        self.calltime += time.time()-t1
+        for i in range(len(self.wavs)):
 
-        '''
-        if self.calls % 100 == 0:
-            print(f"Average call time at {self.calls}:"
-                  f"{(self.calltime/self.calls)*1000}")
-        '''
+            # Get per-filter values
+            r = residuals[i]
+            sig = sigma[i]
+            w = widths[i]
+            if not np.isfinite(w):
+                return -np.inf
+            
+            # Combined correlated noise standard deviation
+            if np.any(sig <= 0) or not np.all(np.isfinite(sig)):
+                return -np.inf
 
-        return log_like
+            # One-dimensional triangular correlation matrices
+            ny, nx = r.shape
+
+            if ny == nx:
+                x = np.arange(nx)
+                Rx = self.corrkernel(x, w)
+                Ry = Rx
+
+                # Cholesky factorisation
+                Lx = cholesky(Rx, lower=True, check_finite=False)
+                Ly = Lx
+
+            else:
+                x = np.arange(nx)
+                y = np.arange(ny)
+                Rx = self.corrkernel(x, w)
+                Ry = self.corrkernel(y, w)
+
+                # Cholesky factorisation
+                Lx = cholesky(Rx, lower=True, check_finite=False)
+                Ly = cholesky(Ry, lower=True, check_finite=False)
+
+            # Standardise residuals
+            U = r / sig
+
+            # Whiten along both axes
+            V = solve_triangular(Ly, U, lower=True, check_finite=False)
+            V = solve_triangular(Lx, V.T, lower=True, check_finite=False).T
+
+            # Term 1: quadratic form
+            quadratic = np.sum(V**2)
+
+            # Term 2: log determinant
+            if ny == nx:
+                logdet = (2.0 * np.sum(np.log(sig))
+                        + 4.0 * nx * np.sum(np.log(np.diag(Lx))))
+            else:
+                logdet = (2.0 * np.sum(np.log(sig))
+                        + 2.0 * nx * np.sum(np.log(np.diag(Ly)))
+                        + 2.0 * ny * np.sum(np.log(np.diag(Lx))))
+
+            # Term 3: Gaussian normalisation
+            N = r.size
+            norm = N * np.log(2.0 * np.pi)
+
+            total_like += -0.5 * (quadratic + logdet + norm)
+
+        return total_like
 
     def run(self, n_live=1000, pool=None, oversample=None,
             oversample_bl=None, oversample_radii=None,
             gpu_acceleration=False, verbose_sampler=True,
-            timeout=np.inf, rotmethod='interpolation'):
+            timeout=np.inf, rotmethod='interpolation',
+            corrkernel=Kernels.triang):
         """ Run the sampler and save results.
 
         Parameters
@@ -383,6 +428,8 @@ class fit(object):
                 self.accel = torch.device('cpu')
         else:
             self.accel = torch.device('cpu')
+
+        self.corrkernel = corrkernel
 
         # Define dummy models in each filter which are updated during sampling
         if self.psfs is not None:
@@ -521,11 +568,61 @@ class fit(object):
     def calc_chisq(self, param_vec):
         """ Calculates the Chisq value for the given parameter vector. """
 
-        residuals, sigma = self.get_residuals(param_vec)
-        chisq_arr = residuals**2 / sigma**2
-        chisq = np.sum(chisq_arr)
+        residuals, sigma, widths = self.get_residuals(param_vec)
+        if isinstance(residuals, str):
+            return -99., -99.
 
-        return chisq, len(chisq_arr)
+        total_chisq = 0.0
+
+        for i in range(len(self.wavs)):
+
+            # Get per-filter values
+            r = residuals[i]
+            sig = sigma[i]
+            w = widths[i]
+            if not np.isfinite(w):
+                return -np.inf
+            
+            # Combined correlated noise standard deviation
+            S = sig
+            if np.any(S <= 0) or not np.all(np.isfinite(S)):
+                return -np.inf
+
+            # One-dimensional triangular correlation matrices
+            ny, nx = r.shape
+
+            if ny == nx:
+                x = np.arange(nx)
+                Rx = self.corrkernel(x, w)
+                Ry = Rx
+
+                # Cholesky factorisation
+                Lx = cholesky(Rx, lower=True, check_finite=False)
+                Ly = Lx
+
+            else:
+                x = np.arange(nx)
+                y = np.arange(ny)
+                Rx = self.corrkernel(x, w)
+                Ry = self.corrkernel(y, w)
+
+                # Cholesky factorisation
+                Lx = cholesky(Rx, lower=True, check_finite=False)
+                Ly = cholesky(Ry, lower=True, check_finite=False)
+
+            # Standardise residuals
+            U = r / S
+
+            # Whiten along both axes
+            V = solve_triangular(Ly, U, lower=True, check_finite=False)
+            V = solve_triangular(Lx, V.T, lower=True, check_finite=False).T
+
+            # Term 1: quadratic form
+            quadratic = np.sum(V**2)
+
+            total_chisq += quadratic
+
+        return total_chisq, len(residuals.ravel())
 
     def automatic_oversampling(self):
         """ Function to determine bets oversampling properties
@@ -594,7 +691,7 @@ class fit(object):
                                         self.phandler.revert(p).flatten(), 1,
                                         self.samples)
         samp_filt = samp_filt.reshape(self.samples.shape[0], len(self.wavs),
-                                      np.sum(self.phandler.nsources)+4)
+                                      np.sum(self.phandler.nsources)+5)
         quan = np.percentile(samp_filt, q=(16, 50, 84), axis=0)
         dic = {"id": self.id}
         for j in range(len(self.wavs)):
@@ -724,7 +821,7 @@ class fit(object):
                            self.oversample_bl, oversample_radii)
         plt.savefig(dir_path+f'/mimical_output/plots{self.runtag}/'
                     f'summary_plots/{self.id}_fit_summary.pdf',
-                    bbox_inches='tight', dpi=300,
+                    bbox_inches='tight', dpi=1000,
                     transparent=True)
 
         # Plot the trends with wavelength if multiband fit
