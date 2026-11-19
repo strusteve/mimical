@@ -1,5 +1,4 @@
 import torch
-torch.set_default_dtype(torch.float32)
 
 
 class Sersic(object):
@@ -74,7 +73,6 @@ class Sersic(object):
                  torch.exp(-self.bn[:, None, None] *
                            (torch.pow(r2, 0.5 *
                                       self.inv_n[:, None, None]) - 1)))
-
         return final
 
 

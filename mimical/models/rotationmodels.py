@@ -5,6 +5,7 @@ import torch
 import os
 import torch.nn.functional as Fnn
 
+torch.set_default_dtype(torch.float64)
 install_dir = os.path.dirname(os.path.realpath(__file__))
 netdir = (install_dir + "/utils/neural_networks").replace("/models", "")
 
@@ -12,26 +13,34 @@ netdir = (install_dir + "/utils/neural_networks").replace("/models", "")
 class Rotator(object):
     """ General image rotation class. """
 
-    def __init__(self, device="cpu"):
+    def __init__(self, device=torch.device("cpu"), dt=torch.float64):
+
+        self.device = device
+        self.dt = dt
 
         model = MLP()
+        model = model.to(self.dt).to(self.device)
+
         if not os.path.isfile(netdir + "/square_intersection_nn.pth"):
             model = train_nn(model)
         else:
             model.load_state_dict(torch.load(netdir +
                                              "/square_intersection_nn.pth",
                                              map_location=device))
-        self.square_predictor = SquareIntersectionPredictor(model, device)
+        self.square_predictor = SquareIntersectionPredictor(model)
 
         offset_y, offset_x = torch.meshgrid(torch.tensor([-1, 0, 1],
-                                                         device=device),
+                                                         device=device,
+                                                         dtype=self.dt),
                                             torch.tensor([-1, 0, 1],
-                                                         device=device),
+                                                         device=device,
+                                                         dtype=self.dt),
                                             indexing="ij")
 
         self.offsets = torch.stack((offset_x, offset_y), dim=0)
 
-    def interpolation(self, images, angles, **kwargs):
+    def interpolation(self, images, angles,
+                      base_x=None, base_y=None, utilnum=None):
         """
         Fully vectorised image-cube rotation function based on the
         classic interpolation method.
@@ -41,7 +50,7 @@ class Rotator(object):
 
         theta = torch.zeros((images.shape[0], 2, 3),
                             device=images.device,
-                            dtype=images.dtype)
+                            dtype=self.dt)
 
         # Build affine-rotation matrix
         theta[:, 0, 0] = torch.cos(torch.deg2rad(angles))
@@ -73,9 +82,11 @@ class Rotator(object):
 
         if (base_x is None) & (base_y is None):
             base_x, base_y = torch.meshgrid(torch.arange(images[0].shape[1],
-                                                         device=images.device),
+                                                         device=self.device,
+                                                         dtype=self.dt),
                                             torch.arange(images[0].shape[0],
-                                                         device=images.device),
+                                                         device=self.device,
+                                                         dtype=self.dt),
                                             indexing='xy')
         elif (base_x is not None) & (base_y is None):
             raise Exception("Both 'base_x' and 'base_y' must "
@@ -85,7 +96,9 @@ class Rotator(object):
                             "be ignored or provided")
 
         if utilnum is None:
-            utilnum = torch.arange(len(angles), device=images.device)
+            utilnum = torch.arange(len(angles),
+                                   device=self.device,
+                                   dtype=self.dt)
 
         base_x = base_x-((images[0].shape[1]-1)/2)
         base_y = base_y-((images[0].shape[0]-1)/2)
@@ -125,7 +138,7 @@ class Rotator(object):
 
         # Get the original values of each pixel
         padded_images = torch.nn.functional.pad(images, (0, 100, 0, 100))
-        fluxes = padded_images[*final_rot]
+        fluxes = padded_images[*final_rot.to(torch.int)]
 
         # Mask out boundaries and reshape
         mask = ((final_rot[1] < 0) |
@@ -148,9 +161,11 @@ class Rotator(object):
 
         if (base_x is None) & (base_y is None):
             base_x, base_y = torch.meshgrid(torch.arange(images[0].shape[1],
-                                                         device=images.device),
+                                                         device=self.device,
+                                                         dtype=self.dt),
                                             torch.arange(images[0].shape[0],
-                                                         device=images.device),
+                                                         device=self.device,
+                                                         dtype=self.dt),
                                             indexing='xy')
         elif (base_x is not None) & (base_y is None):
             raise Exception("Both 'base_x' and 'base_y' must "
@@ -160,7 +175,9 @@ class Rotator(object):
                             "be ignored or provided")
 
         if utilnum is None:
-            utilnum = torch.arange(len(angles), device=images.device)
+            utilnum = torch.arange(len(angles),
+                                   device=self.device,
+                                   dtype=self.dt)
 
         # Rotate output coords to origin input coords
         base_x = base_x-((images[0].shape[1]-1)/2)
@@ -191,7 +208,7 @@ class Rotator(object):
 
         # Get the original values of each pixel
         padded_images = torch.nn.functional.pad(images, (0, 100, 0, 100))
-        fluxes = padded_images[*final_rot]
+        fluxes = padded_images[*final_rot.to(torch.int)]
 
         # Mask out boundaries and reshape
         mask = ((final_rot[1] < 0) |
@@ -204,7 +221,7 @@ class Rotator(object):
         return fluxes
 
     def intersection(self, images, angles, base_x=None,
-                     base_y=None, utilnum=None, type='square'):
+                     base_y=None, utilnum=None, rottype='square'):
         """
         Fully vectorised image-cube rotation function that rotates via a matrix
         then performs grid sampling using sub-functions to find the summing
@@ -217,9 +234,11 @@ class Rotator(object):
 
         if (base_x is None) & (base_y is None):
             base_x, base_y = torch.meshgrid(torch.arange(images[0].shape[1],
-                                                         device=images.device),
+                                                         device=self.device,
+                                                         dtype=self.dt),
                                             torch.arange(images[0].shape[0],
-                                                         device=images.device),
+                                                         device=self.device,
+                                                         dtype=self.dt),
                                             indexing='xy')
         elif (base_x is not None) & (base_y is None):
             raise Exception("Both 'base_x' and 'base_y' must "
@@ -229,16 +248,19 @@ class Rotator(object):
                             "be ignored or provided")
 
         if utilnum is None:
-            utilnum = torch.arange(len(angles), device=images.device)
+            utilnum = torch.arange(len(angles),
+                                   device=self.device,
+                                   dtype=self.dt)
 
         # Rotate output coords to origin input coords
         base_x = base_x-((images[0].shape[1]-1)/2)
         base_y = base_y-((images[0].shape[0]-1)/2)
         coords = torch.stack([base_x.flatten(), base_y.flatten()])
-        oords = coords.unsqueeze(0).expand(len(angles), -1, -1)
+        coords = coords.unsqueeze(0).expand(len(angles), -1, -1)
         theta = torch.deg2rad(angles)
         rotM = torch.stack([torch.stack([torch.cos(theta), -torch.sin(theta)]),
                             torch.stack([torch.sin(theta), torch.cos(theta)])])
+        rotM = rotM.to(self.dt).to(self.device)
         rotM = torch.flip(rotM,
                           dims=(1, 0)).swapaxes(0, 2).reshape(len(theta), 2, 2)
         coords = (rotM @ coords)
@@ -314,11 +336,11 @@ class Rotator(object):
 
             return intersecting_area.reshape(dxs.shape)
 
-        if type == 'circle':
+        if rottype == 'circle':
             # Get summing weights of all neighbour input pixels
             weights = weight_neighbours_circleintersection(coords,
                                                            expanded_origin)
-        elif type == 'square':
+        elif rottype == 'square':
             # Get summing weights of all neighbour input pixels
             weights = weight_neighbours_squareintersection(coords,
                                                            expanded_origin)

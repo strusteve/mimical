@@ -21,22 +21,19 @@ class MLP(nn.Module):
 
 
 class SquareIntersectionPredictor:
-    def __init__(self, model, device="cpu"):
-        self.model = model.to(device)
+    def __init__(self, model):
+        self.model = model
         self.model.eval()
-        self.device = device
 
     def featurize(self, dxs, dys, theta2):
 
         r = torch.sqrt(dxs*dxs + dys*dys)
 
-        return torch.stack([
-            dxs,
-            dys,
-            r,
-            torch.sin(theta2),
-            torch.cos(theta2)
-        ], axis=1).to(torch.float32)
+        return torch.stack([dxs,
+                            dys,
+                            r,
+                            torch.sin(theta2),
+                            torch.cos(theta2)], axis=1)
 
     @torch.no_grad()
     def predict(self, dxs, dys, theta2):

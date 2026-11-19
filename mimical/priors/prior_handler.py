@@ -323,7 +323,7 @@ class priorHandler(object):
             elif (('psf_pa' in keys[i]) |
                   ('bg' in keys[i]) |
                   ('rms' in keys[i]) |
-                  ('counts_per_flux' in keys[i]) | 
+                  ('counts_per_flux' in keys[i]) |
                   ('correlation_width' in keys[i])):
 
                 # Load in the Mimical prior element
@@ -466,9 +466,9 @@ class priorHandler(object):
             elif (('psf_pa' in key) |
                   ('bg' in key) |
                   ('rms' in key) |
-                  ('counts_per_flux' in key) | 
+                  ('counts_per_flux' in key) |
                   ('correlation_width' in key)):
-                
+
                 # Load in the Mimical prior element
                 param_prior = self.mimical_prior[key]
 

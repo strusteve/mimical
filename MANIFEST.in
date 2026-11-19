@@ -1,7 +1,9 @@
 include mimical/config/sextractor_config/default.param
 include mimical/config/sextractor_config/gauss_2.5_5x5.conv
 include mimical/config/sextractor_config/jwst_default_segmap.config
-include mimical/utils/oversampling_table/automatic_oversampling.fits
-include mimical/utils/oversampling_table/reference_images/*
+include mimical/utils/oversampling_table/automatic_oversampling_10000.fits
+include mimical/utils/oversampling_table/automatic_oversampling_1000.fits
+include mimical/utils/oversampling_table/reference_images_10000/*
+include mimical/utils/oversampling_table/reference_images_1000/*
 include mimical/utils/neural_networks/square_intersection_nn.pth
 include LICENSE.txt

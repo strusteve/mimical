@@ -72,14 +72,12 @@ def train_nn(MLP, device="cpu"):
     train_loader = DataLoader(
         TensorDataset(X_train, y_train),
         batch_size=512,
-        shuffle=True
-    )
+        shuffle=True)
 
     val_loader = DataLoader(
         TensorDataset(X_val, y_val),
         batch_size=512,
-        shuffle=False
-    )
+        shuffle=False)
 
     model = MLP.to(device)
     opt = torch.optim.Adam(model.parameters(), lr=1e-3)
@@ -108,7 +106,7 @@ def train_nn(MLP, device="cpu"):
         val_loss /= len(val_loader.dataset)
 
         print(f"Epoch {epoch+1:2d}: train={train_loss:.6f}  "
-              "val={val_loss:.6f}")
+              f"val={val_loss:.6f}")
 
     torch.save(model.state_dict(), install_dir + "/square_intersection_nn.pth")
 

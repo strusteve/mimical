@@ -25,13 +25,11 @@ def plot_best(images, wavs, image_models, best_sample, prior_handler,
     psfarr = reverted[:, np.sum(prior_handler.nsources)]
     bgarr = reverted[:, np.sum(prior_handler.nsources)+1]
 
-    pars = torch.tensor(pars, dtype=torch.float32,
-                        device=image_models.x.device)
+    pars = torch.tensor(pars)
 
     # Generate best model
     image_models.update_parameters(pars,
-                                   torch.tensor(psfarr, dtype=torch.float32,
-                                                device=image_models.x.device))
+                                   torch.tensor(psfarr))
     if oversample is not None:
         image_models.update_oversampling(oversample, oversample_bl,
                                          oversample_radii)
@@ -137,10 +135,8 @@ def plot_errors(images, wavs, mimical_prior, image_models, best_sample,
             if isinstance(mimical_prior['counts_per_flux'][0], np.ndarray):
                 cpfarr = np.array(mimical_prior['counts_per_flux'])
 
-    image_models.update_parameters(torch.tensor(pars, dtype=torch.float32,
-                                                device=image_models.x.device),
-                                   torch.tensor(psfarr, dtype=torch.float32,
-                                                device=image_models.x.device))
+    image_models.update_parameters(torch.tensor(pars),
+                                   torch.tensor(psfarr))
     if oversample is not None:
         image_models.update_oversampling(oversample, oversample_bl,
                                          oversample_radii)

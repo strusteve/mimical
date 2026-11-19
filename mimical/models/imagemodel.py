@@ -1,14 +1,7 @@
 from .rotationmodels import Rotator
-import time
-import torch
-import warnings
 import matplotlib.pyplot as plt
-import gc
-# Filter out the specific dynamic resize warning
-warnings.filterwarnings(
-    "ignore",
-    category=UserWarning,
-    message="An output with one or more elements was resized")
+import torch
+torch.set_default_dtype(torch.float64)
 
 
 class ImageModel(object):
@@ -32,10 +25,6 @@ class ImageModel(object):
     psf : 1dtensor or 2dtensor
         A 2D PSF or 3D PSF with slices for each filter.
 
-    psf_pa : 1dtensor
-        A 1D tensor of PSF position angles (east of north) with elements for
-        each filter.
-
     oversample : int or list of ints
         The factor by which to oversample the image. Integer for 'homogeneous'
         and 'window' methods, list for 'annuli' method.
@@ -47,49 +36,67 @@ class ImageModel(object):
         Radii of annuli in which to oversample.
     """
 
-    def __init__(self, x, y, submodels, psf, psf_pa, oversample=None,
+    def __init__(self, x, y, submodels, psf, oversample=None,
                  oversample_bl=None, oversample_radii=None,
-                 rotmethod='interpolation'):
+                 rotmethod='interpolation', device=torch.device('cpu'),
+                 dt=torch.float32):
 
-        self.x = x
-        self.y = y
+        self.device = device
+        self.dt = dt
+
+        self.x = x.to(self.dt).to(self.device)
+        self.y = y.to(self.dt).to(self.device)
         self.nsources = [i.params.shape[1] for i in submodels]
         self.submodels = submodels
-        self.psf = psf
+
+        # Cache PSF coord grid for efficiency
+        if psf is not None:
+            self.psf = psf.to(self.dt).to(self.device)
+            psfx = torch.arange(psf[0].shape[1],
+                                device=self.device,
+                                dtype=self.dt)
+            psfy = torch.arange(psf[0].shape[0],
+                                device=self.device,
+                                dtype=self.dt)
+            self.psf_xgrid, self.psf_ygrid = torch.meshgrid(psfx, psfy,
+                                                            indexing='xy')
+            self.utilnum = torch.arange(self.psf.shape[0],
+                                        device=self.device,
+                                        dtype=self.dt)
+        else:
+            self.psf = psf
+
         self.oversample = oversample
         self.oversample_bl = oversample_bl
         self.oversample_radii = oversample_radii
-        self.psf_pa = psf_pa
 
         # Cache image coord grid for efficiency
-        self.base_xgrid, self.base_ygrid = torch.meshgrid(x, y, indexing='xy')
-
-        # Cache PSF coord grid for efficiency
-        if self.psf is not None:
-            psfx = torch.arange(psf[0].shape[1], device=self.x.device)
-            psfy = torch.arange(psf[0].shape[0], device=self.x.device)
-            self.psf_xgrid, self.psf_ygrid = torch.meshgrid(psfx, psfy,
-                                                            indexing='xy')
+        self.base_xgrid, self.base_ygrid = torch.meshgrid(self.x,
+                                                          self.y,
+                                                          indexing='xy')
 
         if rotmethod == 'interpolation':
-            self.rotator = Rotator(device=self.x.device).interpolation
+            self.rotator = Rotator(device=self.device,
+                                   dt=self.dt).interpolation
         elif rotmethod == 'intersection':
-            self.rotator = Rotator(device=self.x.device).intersection
+            self.rotator = Rotator(device=self.device,
+                                   dt=self.dt).intersection
         else:
             raise Exception("Can only choose 'interpolation', or "
                             "'intersection' for rotation method.")
 
-        self.utilnum = torch.arange(len(psf_pa), device=x.device)
-
     def update_parameters(self, submodel_params, psf_pa):
         """ Update the submodel parameters and psf position angles. """
+
+        submodel_params = submodel_params.to(self.dt).to(self.device)
+        psf_pa = psf_pa.to(self.dt).to(self.device)
 
         for i in range(len(self.nsources)):
             if i == 0:
                 pars = submodel_params[:, :self.nsources[i]]
                 self.submodels[i].update_parameters(pars)
             else:
-                partrack = torch.sum(torch.tensor(self.nsources[:i]))
+                partrack = sum(self.nsources[:i])
                 pars = submodel_params[:,
                                        partrack:
                                        partrack+self.nsources[i]]
@@ -141,12 +148,6 @@ class ImageModel(object):
             # Convolve submodel image with PSF image
             out = self.PSFconvolve(model_image, psf_rot)
 
-        if self.x.device.type == "cuda":
-            torch.cuda.empty_cache()
-        elif self.x.device.type == "mps":
-            torch.mps.synchronize()
-            torch.mps.empty_cache()
-
         return out
 
     def evaluate_over_grid(self, model, oversample, oversample_bl,
@@ -156,8 +157,10 @@ class ImageModel(object):
         # If no oversampling specified
         if oversample is None:
             # Make pixel grid
-            xgrid = torch.stack(([self.base_xgrid]*model.params.shape[0]))
-            ygrid = torch.stack(([self.base_ygrid]*model.params.shape[0]))
+            xgrid = self.base_xgrid.unsqueeze(0).expand(model.params.shape[0],
+                                                        -1, -1)
+            ygrid = self.base_ygrid.unsqueeze(0).expand(model.params.shape[0],
+                                                        -1, -1)
             return model.evaluate(xgrid, ygrid)
 
         # Expand the pixel grid and then block-reduce
@@ -186,13 +189,14 @@ class ImageModel(object):
     def homogeneous_oversampling(self, model, oversample):
         """ Oversample the entire image by the factor provided. """
 
-        oversample_shift = (torch.arange(oversample, device=self.x.device) -
-                            ((oversample-1) / 2)) * (1 / oversample)
+        oversample_shift = (torch.arange(oversample,
+                                         device=self.device,
+                                         dtype=self.dt)
+                            - ((oversample-1) / 2)) * (1 / oversample)
 
-        shift_x, shift_y = torch.meshgrid(
-            oversample_shift,
-            oversample_shift,
-            indexing="xy")
+        shift_x, shift_y = torch.meshgrid(oversample_shift,
+                                          oversample_shift,
+                                          indexing="xy")
 
         xgrid = self.base_xgrid.flatten()
         ygrid = self.base_ygrid.flatten()
@@ -218,8 +222,8 @@ class ImageModel(object):
 
         model_image = torch.zeros((model.params.shape[0],
                                    *self.base_xgrid.shape),
-                                  device=self.base_xgrid.device,
-                                  dtype=torch.float32)
+                                  device=self.device,
+                                  dtype=self.dt)
 
         # Inside box
         curr_mask = self.base_xgrid != self.base_xgrid
@@ -228,8 +232,10 @@ class ImageModel(object):
                   (self.x.shape[0]-oversample_bl)//2:
                   -(self.x.shape[0]-oversample_bl)//2] = True
 
-        oversample_shift = (torch.arange(oversample, device=self.x.device) -
-                            ((oversample-1) / 2)) * (1 / oversample)
+        oversample_shift = (torch.arange(oversample,
+                                         device=self.device,
+                                         dtype=self.dt)
+                            - ((oversample-1) / 2)) * (1 / oversample)
 
         shift_x, shift_y = torch.meshgrid(oversample_shift,
                                           oversample_shift,
@@ -250,6 +256,7 @@ class ImageModel(object):
         # Evaluate and downsample
         evaluation = model.evaluate(xgrid, ygrid)
         evaluation = torch.mean(evaluation, dim=2)
+
         model_image[:, curr_mask] = evaluation
 
         # Outside box
@@ -266,38 +273,35 @@ class ImageModel(object):
         """ Oversampling in annulii by the factors 'oversample'. """
 
         # Make a centred coordinate grid
-        model_image = torch.zeros(
-            (model.params.shape[0], *self.base_xgrid.shape),
-            device=self.base_xgrid.device,
-            dtype=torch.float32,
-        )
+        model_image = torch.zeros((model.params.shape[0],
+                                   *self.base_xgrid.shape),
+                                  device=self.device,
+                                  dtype=self.dt)
 
-        # centred_base_xgrid = self.base_xgrid - ((self.x.shape[0]-1) / 2)
-        # centred_base_ygrid = self.base_ygrid - ((self.y.shape[0]-1) / 2)
-        centred_base_xgrid = self.base_xgrid - \
-            torch.mean(self.submodels[0].x_0)
-        centred_base_ygrid = self.base_ygrid - \
-            torch.mean(self.submodels[0].y_0)
+        # Calculate radius for each image using its own centroid
+        centred_base_xgrid = (self.base_xgrid[None, :, :] -
+                              self.submodels[0].x_0.reshape(-1, 1, 1))
+        centred_base_ygrid = (self.base_ygrid[None, :, :] -
+                              self.submodels[0].y_0.reshape(-1, 1, 1))
 
-        # Bucketize
         r2 = centred_base_xgrid.square() + centred_base_ygrid.square()
-        buckets = torch.tensor([-1,
-                                *[r*r for r in oversample_radii],
-                                1e99],
-                               device=self.base_xgrid.device)
+
+        buckets = torch.tensor([r*r for r in oversample_radii],
+                               device=self.device, dtype=self.dt)
+
         bucketsamp = [*oversample, 1]
+
+        # Find required oversampling factor for each image/pixel
         annulus = torch.bucketize(r2, buckets)
+        factors = torch.tensor(bucketsamp, device=self.device)
+        shared_factors = factors[annulus].max(dim=0).values
 
         # Loop over oversampling radii
-        for i in range(len(buckets)):
-
-            curr_mask = annulus == (i+1)
-
-            if not curr_mask.any():
-                continue
+        for n in sorted(set(bucketsamp)):
+            curr_mask = shared_factors == n
 
             # If oversample is 1, skip.
-            if bucketsamp[i] == 1:
+            if n == 1:
                 # Evaluate over sub-pixel grid
                 xgrid = self.base_xgrid[curr_mask].unsqueeze(-1)
                 ygrid = self.base_ygrid[curr_mask].unsqueeze(-1)
@@ -311,15 +315,14 @@ class ImageModel(object):
                 # Evaluate the oversampling pixel coord 'shift',
                 # aka for an oversample factor of 4, this will be
                 # [-0.375 -0.125  0.125  0.375]
-                n = bucketsamp[i]
-                oversample_shift = (
-                    (torch.arange(n, device=self.x.device) - (n - 1) / 2) / n
-                )
+                oversample_shift = ((torch.arange(n,
+                                                  device=self.device,
+                                                  dtype=self.dt)
+                                    - (n - 1) / 2) / n)
 
-                shift_x, shift_y = torch.meshgrid(
-                    oversample_shift,
-                    oversample_shift,
-                    indexing="xy",)
+                shift_x, shift_y = torch.meshgrid(oversample_shift,
+                                                  oversample_shift,
+                                                  indexing="xy",)
 
                 xgrid = self.base_xgrid[curr_mask]
                 ygrid = self.base_ygrid[curr_mask]
@@ -353,7 +356,6 @@ class ImageModel(object):
         return model_image
 
     def PSFconvolve(self, model_image, psf):
-        # with thanks to https://stackoverflow.com/questions/54877892/
 
         # Pad to avoid wrapping around image edges
         H, W = model_image.shape[-2:]
@@ -365,8 +367,10 @@ class ImageModel(object):
         # Don't shift the PSF origin, just crop the result
         psf_fft = torch.fft.rfft2(psf, s=fft_shape)
 
-        # Convolve and inverse fourier transform 
+        # Convolve and inverse fourier transform
         conv_im = torch.fft.irfft2(img_fft * psf_fft, s=fft_shape)
 
         # Crop the shifted image
-        return conv_im[..., ph // 2 : ph // 2 + H, pw // 2 : pw // 2 + W]
+        return conv_im[...,
+                       ph//2:ph//2+H,
+                       pw//2:pw//2+W]

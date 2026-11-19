@@ -23,6 +23,7 @@ from ..models.submodels import Sersic
 from ..models.imagemodel import ImageModel
 from ..models import Kernels
 
+torch.set_default_dtype(torch.float64)
 dir_path = os.getcwd()
 install_dir = os.path.dirname(os.path.realpath(__file__))
 sextractor_dir = (install_dir + "/utils/sextractor_config").replace("/fitting",
@@ -266,8 +267,8 @@ class fit(object):
                     cpfarr = np.array(self.mimical_prior['counts_per_flux'])
 
         # Update the model for sampled parameters
-        newpars = torch.tensor(modelpars.astype(np.float32), device=self.accel)
-        newpsfpas = torch.tensor(psfarr.astype(np.float32), device=self.accel)
+        newpars = torch.tensor(modelpars)
+        newpsfpas = torch.tensor(psfarr)
         self.image_models.update_parameters(newpars, newpsfpas)
 
         # Update oversampling if 'auto' is chosen
@@ -278,7 +279,8 @@ class fit(object):
                                                       oversample_radii=autorad)
 
         # Discretize model to grid
-        model = self.image_models.render().cpu().numpy()
+        model = self.image_models.render()
+        model = model.cpu().to(dtype=torch.get_default_dtype()).numpy()
 
         # reshape modifiers
         if len(bgarr.shape) == 1:
@@ -297,15 +299,12 @@ class fit(object):
 
         # Calculate the error by the quadrature sum of rms and poisson errors
         else:
-            sigma = np.sqrt(rmsarr**2 +
-                            ((cpfarr**(-1/2)) *
-                             np.sqrt(np.abs(model)))**2)
+            sigma = np.sqrt(rmsarr**2 + np.abs(model) / cpfarr)
 
         # Calculate the filter specific likelihood and add to total
         residuals = (self.images - model)
         residuals[self.contmaps == 0.] = 0.
 
-        #return residuals[contmask], sigma[contmask], widths
         return residuals, sigma, widths
 
     def lnlike(self, param_vec):
@@ -325,7 +324,7 @@ class fit(object):
             w = widths[i]
             if not np.isfinite(w):
                 return -np.inf
-            
+
             # Combined correlated noise standard deviation
             if np.any(sig <= 0) or not np.all(np.isfinite(sig)):
                 return -np.inf
@@ -365,11 +364,11 @@ class fit(object):
             # Term 2: log determinant
             if ny == nx:
                 logdet = (2.0 * np.sum(np.log(sig))
-                        + 4.0 * nx * np.sum(np.log(np.diag(Lx))))
+                          + 4.0 * nx * np.sum(np.log(np.diag(Lx))))
             else:
                 logdet = (2.0 * np.sum(np.log(sig))
-                        + 2.0 * nx * np.sum(np.log(np.diag(Ly)))
-                        + 2.0 * ny * np.sum(np.log(np.diag(Lx))))
+                          + 2.0 * nx * np.sum(np.log(np.diag(Ly)))
+                          + 2.0 * ny * np.sum(np.log(np.diag(Lx))))
 
             # Term 3: Gaussian normalisation
             N = r.size
@@ -383,7 +382,7 @@ class fit(object):
             oversample_bl=None, oversample_radii=None,
             gpu_acceleration=False, verbose_sampler=True,
             timeout=np.inf, rotmethod='interpolation',
-            corrkernel=Kernels.triang):
+            corrkernel=Kernels.triang, auto_nref=10000):
         """ Run the sampler and save results.
 
         Parameters
@@ -433,64 +432,69 @@ class fit(object):
 
         # Define dummy models in each filter which are updated during sampling
         if self.psfs is not None:
-            psf_accel = torch.tensor(self.psfs.astype(np.float32),
-                                     device=self.accel)
+            psf_accel = torch.tensor(self.psfs)
         else:
             psf_accel = self.psfs
 
-        self.image_models = ImageModel(torch.arange(self.images.shape[2],
-                                                    device=self.accel),
-                                       torch.arange(self.images.shape[1],
-                                                    device=self.accel),
+        self.image_models = ImageModel(torch.arange(self.images.shape[2]),
+                                       torch.arange(self.images.shape[1]),
                                        self.submodels,
                                        psf=psf_accel,
-                                       psf_pa=np.zeros(len(self.wavs)),
                                        oversample=self.oversample,
                                        oversample_bl=self.oversample_bl,
                                        oversample_radii=self.oversample_radii,
-                                       rotmethod=rotmethod)
+                                       rotmethod=rotmethod,
+                                       device=self.accel,
+                                       dt=torch.float32)
 
         # Load automatic oversampling table if auto
         if isinstance(self.oversample, str):
             if self.oversample == 'auto':
 
                 if not os.path.isfile(tabledir +
-                                      '/automatic_oversampling.fits'):
-                    make_oversampling_table(ImageModel, Sersic)
+                                      f'/automatic_oversampling_'
+                                      f'{auto_nref}.fits'):
+                    make_oversampling_table(ImageModel, Sersic, nref=auto_nref)
 
                 r_tab1 = Table.read(tabledir +
-                                    '/automatic_oversampling.fits',
+                                    f'/automatic_oversampling_'
+                                    f'{auto_nref}.fits',
                                     hdu="RADII_1")
                 r_tab1_data = np.column_stack([r_tab1[col]
                                                for col in r_tab1.colnames
                                                if col != "Reff\\n"])
                 r_tab2 = Table.read(tabledir +
-                                    '/automatic_oversampling.fits',
+                                    f'/automatic_oversampling_'
+                                    f'{auto_nref}.fits',
                                     hdu="RADII_2")
                 r_tab2_data = np.column_stack([r_tab2[col]
                                                for col in r_tab2.colnames
                                                if col != "Reff\\n"])
                 r_tab3 = Table.read(tabledir +
-                                    '/automatic_oversampling.fits',
+                                    f'/automatic_oversampling_'
+                                    f'{auto_nref}.fits',
                                     hdu="RADII_3")
                 r_tab3_data = np.column_stack([r_tab3[col]
                                                for col in r_tab3.colnames
                                                if col != "Reff\\n"])
 
                 n_tab1 = Table.read(tabledir +
-                                    '/automatic_oversampling.fits',
+                                    f'/automatic_oversampling_'
+                                    f'{auto_nref}.fits',
                                     hdu="FACTOR_1")
                 n_tab1_data = np.column_stack([n_tab1[col]
                                                for col in n_tab1.colnames
                                                if col != "Reff\\n"])
                 n_tab2 = Table.read(tabledir +
-                                    '/automatic_oversampling.fits',
+                                    f'/automatic_oversampling_'
+                                    f'{auto_nref}.fits',
                                     hdu="FACTOR_2")
                 n_tab2_data = np.column_stack([n_tab2[col]
                                                for col in n_tab2.colnames
                                                if col != "Reff\\n"])
                 n_tab3 = Table.read(tabledir +
-                                    '/automatic_oversampling.fits',
+                                    f'/automatic_oversampling_'
+                                    f'{auto_nref}.fits',
                                     hdu="FACTOR_3")
                 n_tab3_data = np.column_stack([n_tab3[col]
                                                for col in n_tab3.colnames
@@ -527,8 +531,7 @@ class fit(object):
                   + dir_path +
                   f'/mimical_output/posteriors{self.runtag}/{self.id}.fits')
             posterior = np.column_stack([posterior[col] for
-                                         col in posterior.colnames]
-                                        ).astype(np.float32)
+                                         col in posterior.colnames])
             self.samples = posterior[:, :-2]
             self.log_l = posterior[:, -2]
             self.success = bool(posterior[:, -1][0])
@@ -547,7 +550,7 @@ class fit(object):
 
             raw_points, raw_log_w, raw_log_l = sampler.posterior()
             n_post = 10000
-            indices = np.random.choice(np.arange(raw_points.shape[0]),
+            indices = np.random.choice(raw_points.shape[0],
                                        size=n_post, p=np.exp(raw_log_w))
             self.samples = raw_points[indices]
             self.log_l = raw_log_l[indices]
@@ -582,7 +585,7 @@ class fit(object):
             w = widths[i]
             if not np.isfinite(w):
                 return -np.inf
-            
+
             # Combined correlated noise standard deviation
             S = sig
             if np.any(S <= 0) or not np.all(np.isfinite(S)):
@@ -750,12 +753,8 @@ class fit(object):
         param_vec = self.phandler.revert(self.maxL_sample)
         pars = param_vec[:, :np.sum(self.phandler.nsources)]
         psfarr = param_vec[:, np.sum(self.phandler.nsources)]
-        self.image_models.update_parameters(torch.tensor(pars,
-                                                         dtype=torch.float32,
-                                                         device=self.accel),
-                                            torch.tensor(psfarr,
-                                                         dtype=torch.float32,
-                                                         device=self.accel))
+        self.image_models.update_parameters(torch.tensor(pars),
+                                            torch.tensor(psfarr))
 
         # Update oversampling if 'auto' is chosen
         if isinstance(self.oversample, str):
@@ -803,10 +802,8 @@ class fit(object):
                 reverted = self.phandler.revert(self.maxL_sample)
                 modelpars = reverted[:, :np.sum(self.phandler.nsources)]
                 psfarr = reverted[:, np.sum(self.phandler.nsources)]
-                newpars = torch.tensor(modelpars.astype(np.float32),
-                                       device=self.accel)
-                newpsfpas = torch.tensor(psfarr.astype(np.float32),
-                                         device=self.accel)
+                newpars = torch.tensor(modelpars)
+                newpsfpas = torch.tensor(psfarr)
                 self.image_models.update_parameters(newpars, newpsfpas)
                 res = self.automatic_oversampling()
                 oversample, oversample_radii = res
