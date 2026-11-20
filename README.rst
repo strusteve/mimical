@@ -1,8 +1,7 @@
 **Mimical** (**M**\odelling the **I**\ntensity of **M**\ultiply-**I**\maged **C**\elesti\ **A**\l **L**\ight)
 
 
-Mimical is an intensity modelling code optimised for multiply-imaged objects (image cubes), performing simultaneous Bayseian inference of model parameters via the nested sampling algorithm. Mimical currently supports Sersic and Point-source submodels, but users can easily bolt-on any other 2D submodel. Since every new filter introduces new submodel free parameters, Mimical supports the assumption of a user defined polynomial or power-law dependency with image wavelength, automatically sampling their coefficients over the allowed parameter region. Additionally, with support for CPU parallelisation via MPI and GPU acceleration via PyTorch, Mimical has significant computational flexibility, allowing users to tune their settings based on available hardware.
-
+Mimical is an intensity-modelling code optimised for multiply imaged objects, enabling simultaneous Bayesian inference of model parameters using the nested sampling algorithm. It currently supports Sérsic and point-source submodels, with a flexible framework that allows users to readily incorporate additional two-dimensional submodels. To mitigate the increasing number of free parameters introduced by observations in multiple filters, Mimical allows users to impose polynomial or power-law wavelength dependencies on model parameters, automatically sampling the corresponding coefficients within the permitted parameter space. Furthermore, Mimical supports CPU parallelisation via MPI and GPU acceleration through PyTorch, providing substantial computational flexibility and enabling users to optimise performance according to their available hardware.
 
 **Installation**
 
@@ -72,7 +71,7 @@ The ``bg`` parameter traces the background level in the image, set to zero if yo
 
 **Fixing parameters**
 
-You can fix any of the parameters in the Mimical prior by setting the parameter prior to either a float/int (constant across images) or a list (specific to each image). For instance, to keep ``x_0`` constant across all images, one would pass a float/int. Or, to supply the ``r_eff`` for each image separately, one would pass a list of floats. For the parameters ``bg``, ``rms`` and ``counts_per_flux`` can also be supplied as an ndarray or list of ndarrays in the same shape as ``images``, while the corner plot samples will show the mean of these images for generality, the full arrays will be parsed in the likelihood function.
+You can fix any of the parameters in the Mimical prior by setting the parameter prior to either a float/int (constant across images) or a list (specific to each image). For instance, to keep ``x_0`` constant across all images, one would pass a float/int. Or, to supply the ``r_eff`` for each image separately, one would pass a list of floats. The parameters ``bg``, ``rms`` and ``counts_per_flux`` can also be supplied as an ndarray or list of ndarrays in the same shape as ``images``.
 
 
 **Parallelisation**
