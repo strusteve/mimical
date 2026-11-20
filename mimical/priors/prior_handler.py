@@ -1,7 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import os
-
 from .prior_relationships import polynomial, powerlaw
 
 dir_path = os.getcwd()
@@ -48,6 +47,9 @@ class priorHandler(object):
         self.images = images
         self.runtag = runtag
         self.id = id
+
+        if np.any(np.diff(self.wavs) <= 0):
+            raise ValueError("Wavelengths must be strictly increasing.")
 
     def sampler_prior(self, x):
         """ Defines the prior used for sampling. Transforms the unit cube. """
@@ -133,13 +135,11 @@ class priorHandler(object):
 
                         elif param_prior[1] == 'power-law':
                             powerbounds = param_prior[2]
-                            epsilon = param_prior[3]
                             if isinstance(param_prior[0], tuple):
                                 plaw_samps = powerlaw(x[xcount:xcount+3],
                                                       param_prior[0],
                                                       self.wavs,
-                                                      powerbounds,
-                                                      epsilon)
+                                                      powerbounds)
                                 xcount += 3
                             elif isinstance(param_prior[0], list):
                                 plaw_samps = param_prior[0]
@@ -223,13 +223,11 @@ class priorHandler(object):
 
                     elif param_prior[1] == 'power-law':
                         powerbounds = param_prior[2]
-                        epsilon = param_prior[3]
                         if isinstance(param_prior[0], tuple):
                             plaw_samps = powerlaw(x[xcount:xcount+3],
                                                   param_prior[0],
                                                   self.wavs,
-                                                  powerbounds,
-                                                  epsilon)
+                                                  powerbounds)
                             xcount += 3
                         elif isinstance(param_prior[0], list):
                             plaw_samps = param_prior[0]
@@ -287,31 +285,21 @@ class priorHandler(object):
                     # If relationship is set
                     elif (isinstance(param_prior, tuple) &
                           isinstance(param_prior[1], str)):
+
                         if param_prior[1] == 'polynomial':
                             poly_order = param_prior[2]
                             coeffs = param_dict[count:count+poly_order+1]
-                            tiler = np.tile(self.wavs-self.wavs[0],
-                                            (poly_order+1, 1)).T
-                            polywavs = np.pow(tiler, np.arange(poly_order+1))
-                            comps = coeffs * polywavs
-                            comps_summed = np.sum(comps, axis=1)
-                            params_final[:, ind] = comps_summed
+                            params_final[:, ind] = (
+                                np.polynomial.polynomial.polyval(
+                                    self.wavs, coeffs))
                             ind += 1
                             count += poly_order+1
 
                         elif param_prior[1] == 'power-law':
-                            epsilon = param_prior[3]
                             coeffs = param_dict[count:count+3]
-                            tiler = np.tile(((self.wavs-self.wavs[0])
-                                             + epsilon) /
-                                            ((self.wavs[-1]-self.wavs[0])
-                                             + epsilon),
-                                            (2, 1)).T
-                            polywavs = np.pow(tiler, np.array([0, coeffs[2]]))
-                            comps = np.array([coeffs[0],
-                                             coeffs[1]-coeffs[0]]) * polywavs
-                            comps_summed = np.sum(comps, axis=1)
-                            params_final[:, ind] = comps_summed
+                            params_final[:, ind] = (coeffs[0] +
+                                                    coeffs[1] *
+                                                    self.wavs**coeffs[2])
                             ind += 1
                             count += 3
 
@@ -345,29 +333,21 @@ class priorHandler(object):
                 # If relationship is set
                 elif (isinstance(param_prior, tuple) &
                       isinstance(param_prior[1], str)):
+
                     if param_prior[1] == 'polynomial':
                         poly_order = param_prior[2]
                         coeffs = param_dict[count:count+poly_order+1]
-                        tiler = np.tile(self.wavs-self.wavs[0],
-                                        (poly_order+1, 1)).T
-                        polywavs = np.pow(tiler, np.arange(poly_order+1))
-                        comps = coeffs * polywavs
-                        comps_summed = np.sum(comps, axis=1)
-                        params_final[:, ind] = comps_summed
+                        params_final[:, ind] = (
+                            np.polynomial.polynomial.polyval(
+                                self.wavs, coeffs))
                         ind += 1
                         count += poly_order+1
 
                     elif param_prior[1] == 'power-law':
-                        epsilon = param_prior[3]
                         coeffs = param_dict[count:count+3]
-                        tiler = np.tile(((self.wavs-self.wavs[0])+epsilon) /
-                                        ((self.wavs[-1]-self.wavs[0])+epsilon),
-                                        (2, 1)).T
-                        polywavs = np.pow(tiler, np.array([0, coeffs[2]]))
-                        comps = np.array([coeffs[0],
-                                         coeffs[1]-coeffs[0]]) * polywavs
-                        comps_summed = np.sum(comps, axis=1)
-                        params_final[:, ind] = comps_summed
+                        params_final[:, ind] = (coeffs[0] +
+                                                coeffs[1] *
+                                                self.wavs**coeffs[2])
                         ind += 1
                         count += 3
 
@@ -405,7 +385,7 @@ class priorHandler(object):
 
                     # If same prior for each image
                     if ((callable(param_prior) |
-                         isinstance(param_prior, (int, float)))):
+                         isinstance(param_prior, (int, float, np.ndarray)))):
                         if callable(param_prior):
                             nparam += 1
                             ndim += 1
@@ -458,7 +438,7 @@ class priorHandler(object):
                         else:
                             raise Exception("Relationship not supported, "
                                             "please choose either "
-                                            "'Polynomial' or 'Power-law'.")
+                                            "'polynomial' or 'power-law'.")
 
                     else:
                         raise Exception("Invalid prior syntax")
@@ -527,7 +507,7 @@ class priorHandler(object):
                     else:
                         raise Exception("Relationship not supported, "
                                         "please choose either "
-                                        "'Polynomial' or 'Power-law'.")
+                                        "'polynomial' or 'power-law'.")
 
                 else:
                     raise Exception("Invalid prior syntax")
@@ -537,7 +517,7 @@ class priorHandler(object):
     def check_priors(self, n, type='sampler'):
         """ Sample the fitted prior volume n times."""
 
-        unit_cube = np.random.rand(n, self.nparam)
+        unit_cube = np.random.rand(n, self.ndim)
 
         if type == 'sampler':
             samples_sampler = np.apply_along_axis(self.sampler_prior, 1,

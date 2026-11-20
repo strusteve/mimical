@@ -1,10 +1,16 @@
 import matplotlib.pyplot as plt
-import numpy as np
 from matplotlib import ticker
-import cmcrameri.cm as cmc
 from matplotlib.ticker import (AutoMinorLocator, AutoLocator)
+import matplotlib.patheffects as pe
+import numpy as np
+import cmcrameri.cm as cmc
 import torch
-fs = 6
+
+plt.rcParams["font.family"] = "STIXGeneral"
+plt.rcParams["mathtext.fontset"] = "stix"
+
+fs = 7
+cmap = 'binary'
 
 
 def plot_best(images, wavs, image_models, best_sample, prior_handler,
@@ -43,9 +49,9 @@ def plot_best(images, wavs, image_models, best_sample, prior_handler,
     resid = (images-model)*contmaps
 
     # Set vmins
-    vmins = [-max([np.percentile(x.flatten(), q=99.9) for x in images]),
-             -max([np.percentile(x.flatten(), q=99.9) for x in images]),
-             -max([np.percentile(x.flatten(), q=99.9) for x in images]),
+    vmins = [min([np.percentile(x.flatten(), q=0.1) for x in images]),
+             min([np.percentile(x.flatten(), q=0.1) for x in images]),
+             min([np.percentile(x.flatten(), q=0.1) for x in images]),
              min(min([np.percentile(x.flatten(), q=1) for x in resid]),
                  -max([-np.percentile(x.flatten(), q=99) for x in resid]))]
 
@@ -65,32 +71,42 @@ def plot_best(images, wavs, image_models, best_sample, prior_handler,
 
             ax = fig.add_subplot(gs[j, i])
             im = ax.pcolormesh(plotims[j], vmax=vmaxs[j], vmin=vmins[j],
-                               cmap=cmc.managua_r, rasterized=True)
+                               cmap=cmap, rasterized=True)
             ax.set_yticks([])
             ax.set_xticks([])
 
             if j == 0:
                 ax.text(0.95, 0.95, filter_names[i].upper(), fontsize=fs,
                         transform=ax.transAxes, ha='right', va='top',
-                        color='white')
+                        color='black', weight='bold',
+                        path_effects=[pe.withStroke(linewidth=1.0,
+                                                    foreground="white")])
 
             if i == 0:
                 if j == 0:
                     ax.text(0.05, 0.05, 'Data', fontsize=fs,
                             transform=ax.transAxes, ha='left', va='bottom',
-                            color='white')
+                            color='black', weight='bold',
+                            path_effects=[pe.withStroke(linewidth=1.0,
+                                                        foreground="white")])
                 if j == 1:
                     ax.text(0.05, 0.05, 'Model', fontsize=fs,
                             transform=ax.transAxes, ha='left', va='bottom',
-                            color='white')
+                            color='black', weight='bold',
+                            path_effects=[pe.withStroke(linewidth=1.0,
+                                                        foreground="white")])
                 if j == 2:
                     ax.text(0.05, 0.05, 'Residual', fontsize=fs,
                             transform=ax.transAxes, ha='left', va='bottom',
-                            color='white')
+                            color='black', weight='bold',
+                            path_effects=[pe.withStroke(linewidth=1.0,
+                                                        foreground="white")])
                 if j == 3:
-                    ax.text(0.05, 0.05, 'Residual\nZoom', fontsize=fs,
+                    ax.text(0.05, 0.05, 'Zoom\nResidual', fontsize=fs,
                             transform=ax.transAxes, ha='left', va='bottom',
-                            color='white')
+                            color='black', weight='bold',
+                            path_effects=[pe.withStroke(linewidth=1.0,
+                                                        foreground="white")])
 
     plt.subplots_adjust(hspace=0.03, wspace=0.03)
     fig.set_size_inches(len(images), 4, forward=True)
@@ -159,9 +175,9 @@ def plot_errors(images, wavs, mimical_prior, image_models, best_sample,
     ratio = (poissonerr/(poissonerr+rmserr))*100
 
     # Set vmins
-    vmins = [-np.max(([x.max() for x in sigmaerr])),
-             -np.max(([x.max() for x in sigmaerr])),
-             -np.max(([x.max() for x in sigmaerr])),
+    vmins = [np.min(([x.min() for x in sigmaerr])),
+             np.min(([x.min() for x in sigmaerr])),
+             np.min(([x.min() for x in sigmaerr])),
              0]
 
     # Set vmaxs
@@ -174,7 +190,7 @@ def plot_errors(images, wavs, mimical_prior, image_models, best_sample,
     ax = fig.add_subplot(gs[0, 0])
     ax.set_axis_off()
     im1 = ax.pcolormesh(np.zeros_like(images[0]), vmax=vmaxs[0],
-                        vmin=vmins[0], cmap=cmc.managua_r,
+                        vmin=vmins[0], cmap=cmap,
                         rasterized=True)
     cbarax1 = fig.add_subplot(gs[:3, -1])
     cbarax1.set_yticks([])
@@ -184,7 +200,7 @@ def plot_errors(images, wavs, mimical_prior, image_models, best_sample,
     cbar1.locator = tick_locator
     cbar1.update_ticks()
     im2 = ax.pcolormesh(np.zeros_like(images[0]), vmax=vmaxs[-1],
-                        vmin=vmins[-1], cmap=cmc.managua_r,
+                        vmin=vmins[-1], cmap=cmap,
                         rasterized=True)
     cbarax2 = fig.add_subplot(gs[3, -1])
     cbarax2.set_yticks([])
@@ -203,7 +219,7 @@ def plot_errors(images, wavs, mimical_prior, image_models, best_sample,
 
             ax = fig.add_subplot(gs[j, i])
             im = ax.pcolormesh(plotims[j]*contmaps[i], vmax=vmaxs[j],
-                               vmin=vmins[j], cmap=cmc.managua_r,
+                               vmin=vmins[j], cmap=cmap,
                                rasterized=True)
             ax.set_yticks([])
             ax.set_xticks([])
@@ -211,27 +227,37 @@ def plot_errors(images, wavs, mimical_prior, image_models, best_sample,
             if j == 0:
                 ax.text(0.95, 0.95, filter_names[i].upper(), fontsize=fs,
                         transform=ax.transAxes, ha='right', va='top',
-                        color='white')
+                        color='black', weight='bold',
+                        path_effects=[pe.withStroke(linewidth=1.0,
+                                                    foreground="white")])
 
             if i == 0:
                 if j == 0:
                     ax.text(0.05, 0.05, 'RMS', fontsize=fs,
                             transform=ax.transAxes, ha='left', va='bottom',
-                            color='white')
+                            color='black', weight='bold',
+                            path_effects=[pe.withStroke(linewidth=1.0,
+                                                        foreground="white")])
                 if j == 1:
                     ax.text(0.05, 0.05, 'Poisson', fontsize=fs,
                             transform=ax.transAxes, ha='left', va='bottom',
-                            color='white')
+                            color='black', weight='bold',
+                            path_effects=[pe.withStroke(linewidth=1.0,
+                                                        foreground="white")])
 
                 if j == 2:
                     ax.text(0.05, 0.05, 'Total Sigma', fontsize=fs,
                             transform=ax.transAxes, ha='left', va='bottom',
-                            color='white')
+                            color='black', weight='bold',
+                            path_effects=[pe.withStroke(linewidth=1.0,
+                                                        foreground="white")])
 
                 if j == 3:
                     ax.text(0.05, 0.05, '%Poisson', fontsize=fs,
                             transform=ax.transAxes, ha='left', va='bottom',
-                            color='white')
+                            color='black', weight='bold',
+                            path_effects=[pe.withStroke(linewidth=1.0,
+                                                        foreground="white")])
 
     plt.subplots_adjust(hspace=0.03, wspace=0.03)
     fig.set_size_inches(len(images), 4, forward=True)

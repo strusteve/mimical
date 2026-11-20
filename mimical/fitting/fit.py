@@ -200,71 +200,44 @@ class fit(object):
         # Translate unit cube prior sample into Mimical prior sample
         reverted = self.phandler.revert(param_vec)
 
-        # If using relationships, check in bounds.
-        voidcount = -1
-        for key in self.mimical_prior.keys():
-            if isinstance(self.mimical_prior[key], dict):
-                for subkey in self.mimical_prior[key].keys():
-                    voidcount += 1
-                    param_prior = self.mimical_prior[key][subkey]
-                    if isinstance(param_prior, tuple):
-                        if isinstance(param_prior[1], str):
-                            bounds = self.mimical_prior[key][subkey][0]
-                            if isinstance(bounds, tuple):
-                                if ((any(reverted[:, voidcount] < bounds[0]) |
-                                     any(reverted[:, voidcount] > bounds[1]))):
-                                    print('Unphysical model detected.')
-                                    return 'void', 'void', 'void'
-            else:
-                voidcount += 1
-                param_prior = self.mimical_prior[key]
-                if (isinstance(param_prior, tuple)):
-                    if isinstance(param_prior[1], str):
-                        bounds = self.mimical_prior[key][0]
-                        if isinstance(bounds, tuple):
-                            if ((any(reverted[:, voidcount] < bounds[0]) |
-                                 any(reverted[:, voidcount] > bounds[1]))):
-                                print('Unphysical model detected.')
-                                return 'void', 'void', 'void'
+        # If using relationships, check bounds
+        priors = (subprior for prior in self.mimical_prior.values()
+                  for subprior in
+                  (prior.values() if isinstance(prior, dict) else [prior]))
+
+        for i, prior in enumerate(priors):
+            if ((isinstance(prior, tuple)
+                 and len(prior) > 1
+                 and isinstance(prior[1], str)
+                 and isinstance(prior[0], tuple))):
+                lower, upper = prior[0]
+                if np.any((reverted[:, i] < lower) | (reverted[:, i] > upper)):
+                    print('Unphysical model detected.')
+                    return 'void', 'void', 'void'
 
         # Pull out model and mimical parameters
-        modelpars = reverted[:, :np.sum(self.phandler.nsources)]
-        psfarr = reverted[:, np.sum(self.phandler.nsources)]
-        bgarr = reverted[:, np.sum(self.phandler.nsources)+1]
-        rmsarr = reverted[:, np.sum(self.phandler.nsources)+2]
-        cpfarr = reverted[:, np.sum(self.phandler.nsources)+3]
-        widths = reverted[:, np.sum(self.phandler.nsources)+4]
+        n = np.sum(self.phandler.nsources)
+        modelpars = reverted[:, :n]
+        psfarr = reverted[:, n]
+        bgarr = reverted[:, n + 1]
+        rmsarr = reverted[:, n + 2]
+        cpfarr = reverted[:, n + 3]
+        widths = reverted[:, n + 4]
 
-        # If user provides RMS per pixel, override prior sample
-        if isinstance(self.mimical_prior['bg'],
-                      (np.ndarray, list)):
-            if isinstance(self.mimical_prior['bg'],
-                          np.ndarray):
-                bgarr = self.mimical_prior['bg']
-            elif isinstance(self.mimical_prior['bg'], list):
-                if isinstance(self.mimical_prior['bg'][0],
-                              np.ndarray):
-                    bgarr = np.array(self.mimical_prior['bg'])
-        if isinstance(self.mimical_prior['rms'],
-                      (np.ndarray, list)):
-            if isinstance(self.mimical_prior['rms'],
-                          np.ndarray):
-                rmsarr = self.mimical_prior['rms']
-            elif isinstance(self.mimical_prior['rms'],
-                            list):
-                if isinstance(self.mimical_prior['rms'][0],
-                              np.ndarray):
-                    rmsarr = np.array(self.mimical_prior['rms'])
-        if isinstance(self.mimical_prior['counts_per_flux'],
-                      (np.ndarray, list)):
-            if isinstance(self.mimical_prior['counts_per_flux'],
-                          np.ndarray):
-                cpfarr = self.mimical_prior['counts_per_flux']
-            elif isinstance(self.mimical_prior['counts_per_flux'],
-                            list):
-                if isinstance(self.mimical_prior['counts_per_flux'][0],
-                              np.ndarray):
-                    cpfarr = np.array(self.mimical_prior['counts_per_flux'])
+        # Override sampled parameters only for non-callable priors
+        def prepare_array(value, original):
+            arr = np.asarray(original if callable(value) else value)
+
+            if arr.ndim == 1:
+                arr = arr[:, None, None]
+
+            return np.broadcast_to(arr, self.images.shape)
+
+        bgarr, rmsarr, cpfarr = (
+            prepare_array(self.mimical_prior[key], original)
+            for key, original in zip(
+                ('bg', 'rms', 'counts_per_flux'),
+                (bgarr, rmsarr, cpfarr)))
 
         # Update the model for sampled parameters
         newpars = torch.tensor(modelpars)
@@ -281,14 +254,6 @@ class fit(object):
         # Discretize model to grid
         model = self.image_models.render()
         model = model.cpu().to(dtype=torch.get_default_dtype()).numpy()
-
-        # reshape modifiers
-        if len(bgarr.shape) == 1:
-            bgarr = np.broadcast_to(bgarr[:, None, None], model.shape)
-        if len(rmsarr.shape) == 1:
-            rmsarr = np.broadcast_to(rmsarr[:, None, None], model.shape)
-        if len(cpfarr.shape) == 1:
-            cpfarr = np.broadcast_to(cpfarr[:, None, None], model.shape)
 
         # Add the sky background
         model += bgarr

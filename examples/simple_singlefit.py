@@ -32,6 +32,7 @@ mimical_prior['psf_pa'] = unif(-180, 180).isf
 mimical_prior['bg'] = norm(0, 1).isf
 mimical_prior['rms'] = unif(0, 1).isf
 mimical_prior['counts_per_flux'] = 1e6
+mimical_prior['correlation_width'] = 1.0
 
 fit = mimical.fit(str(id), image, filt_list, psf, mimical_prior)
 fit.run(verbose_sampler=True, oversample='auto')

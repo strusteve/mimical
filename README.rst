@@ -12,10 +12,6 @@ Mimical can be installed with pip:
 
     pip install mimical
 
-
-.. image:: docs/fit_example.png
-
-
 **Required input**
 
 #. ``images`` - A list of images with slices for each filter.
@@ -23,10 +19,9 @@ Mimical can be installed with pip:
 #. ``psfs`` - A list of PSF images with slices for each filter. (Normalised to 1)
 #. ``mimical_prior`` - The Mimical prior (*see below*)
 
-
 **Mimical prior**
 
-Below is an example ``mimical_prior`` for a run using the default Sersic submodel. The first set of element keys must have ``'source'`` and themselves contain keys that match the submodel parameter names. Users can include any number of these to fit multiple-component models. Following this, the next element, named ``psf_pa``, traces the rotation of the PSF. The final three elements must be named ``bg``, ``rms`` and ``counts_per_flux``.
+Below is an example ``mimical_prior`` for a run using the default Sersic submodel. The first set of element keys must have ``'source'`` and themselves contain keys that match the submodel parameter names. Users can include any number of these to fit multiple-component models. Following this, the next element, named ``psf_pa``, traces the rotation of the PSF. The final four elements must be named ``bg``, ``rms``, ``counts_per_flux`` and ``correlation_width``. Parameters can be assigned a constant prior between filters by setting a callable, or varied independently between filters by setting a tuple or callables. Parameters can also be assumed to have a polynomial/power-law relationship with wavelength by setting ''``(parameter bounds, 'polynomial'/'power-law', polynomial order / power bounds)``'', e.g ''``((0,10), 'polynomial', 3)``''.
 
 .. code::
      
@@ -34,7 +29,7 @@ Below is an example ``mimical_prior`` for a run using the default Sersic submode
      source_1['model'] = mimical.Sersic()
      source_1['mag'] = uniform(20, 25)
      source_1['r_eff'] = ((0.1, 20), 'polynomial', 1)
-     source_1['n'] = ((0.1, 10), 'polynomial', 1)
+     source_1['n'] = ((0.1, 10), 'power-law', (-3,3))
      source_1['x_0'] = norm(50, 3)
      source_1['y_0'] = norm(50, 3)
      source_1['ellip'] = uniform(0, 0.9)
@@ -46,23 +41,38 @@ Below is an example ``mimical_prior`` for a run using the default Sersic submode
      mimical_prior['bg'] = 0.
      mimical_prior['rms'] = 'infer'
      mimical_prior['counts_per_flux'] = cpf_list
+     mimical_prior['correlation_width'] = 1.
 
-The ``bg`` parameter traces the background level in the image, set to zero if you trust the background subtraction. The ``rms`` parameter traces the RMS noise in the image; this can be fit with Mimical but it is **highly recommended to fix it** if known in order to reduce dimensionality (see **Fixing parameters**), either by passing it in as a ``float`` / ``array`` / ``list`` of ``floats`` / ``list`` of ``arrays`` of the same length and shape as ``images``, or by selecting the special Mimical prior type ``'infer'`` which automatically calculates the RMS of the image background as identified by SourceExtractor.
-
-Similarly for ``counts_per_flux``, which allows Mimical to associate poisson uncertainty with the generated model, it is recommended to fix it to a provided quantity (``float`` / ``array`` / ``list`` of ``floats`` / ``list`` of ``arrays`` of the same length and shape as ``images``). This may be challenging to derive, but can be provided by the user with information on the gain, exposure time, etc. To neglect poisson uncertainty, this should be set to a high number (but not too high to effect numerical overflow) e.g. 1e50.
+The ``bg`` parameter traces the background level in the image, set to zero if you trust the background subtraction. The ``rms`` parameter traces the sky background RMS noise in the image. The ``counts_per_flux`` parameter allows Mimical to associate poisson uncertainty with the generated model, this can effectively be ignored by setting it to a large number e.g. 1e50. The ``correlation_width`` parameter specifies the kernel-dependent width defining the spatially correlated noise term used in the likelihood covariance. This can be ignored by setting it to 1.0 with the default triangular kernel, as this is equivalent to an independent noise assumption.
 
 
 **Optional input and parameters**
 
-* ``se_clean`` : Whether or not to let SourceExtractor clean the input images of contaminants. Must allow 'sex' command via terminal.
-* ``se_maxdist`` : The distance after which the closest detected source is considered a contaminant. Necessary for images in which the target is undetected.
-* ``dilute`` : Whether or not to apply a circular miminum filter over the contamination map to dilute it.
-* ``dilute_radius`` : If dilute is ``True``, apply minimim filter with radius ``dilute_radius`` over the contamination map.
+``fit(id, images, filt_list, psfs, mimical_prior, ...)``
+
+* ``se_clean = False`` : Whether or not to let SourceExtractor clean the input images of contaminants. Must allow 'sex' command via terminal.
+* ``se_maxdist = 10`` : The distance after which the closest detected source is considered a contaminant. Necessary for images in which the target is undetected.
+* ``dilute = True`` : Whether or not to apply a circular miminum filter over the contamination map to dilute it.
+* ``dilute_radius = 3`` : If dilute is ``True``, apply minimim filter with radius ``dilute_radius`` over the contamination map.
+
+``fit.run(...)``
+
+* ``n_live = 1000`` : The nested sampling live points.
+* ``pool = None`` : Number of cores to parallelise likelihood calls.
+* ``oversample = None`` : Oversampling factor..
+* ``oversample_bl = None`` : Central box width in which to oversample if desired.
+* ``oversample_radii = None`` : Radii defining annuli in which to oversample (oversample must be a list).
+* ``gpu_acceleration = False`` : Whether or not to generate models on the GPU.
+* ``verbose_sampler = True`` : Whether or not to show verbose Nautilus output.
+* ``timeout = np.inf`` : Timeout for nested sampling.
+* ``rotmethod = 'interpolation'`` : Method for rotating PSFs
+* ``corrkernel = Kernels.triang`` : Correlation kernel
+* ``auto_nref = 10000`` : Reference image oversampling when using automatic oversampling
 
 
 **Fixing parameters**
 
-You can fix any of the parameters in the Mimical prior by setting the parameter prior to either a float/int (constant across images) or a list (spcific to each image). For instance, to keep ``x_0`` constant across all images, one would pass a float/int. Or, to supply the ``RMS`` for each image separately, one would pass a list of floats or lost of images of length N\ :sub:`filters`\. If the user supplies an image cube for ``RMS`` and/or ``counts-per-flux``, these must be the same shape as the ``images``, and while the corner plot samples will show the mean of these images for generality, the full arrays will be parsed in the likelihood function.
+You can fix any of the parameters in the Mimical prior by setting the parameter prior to either a float/int (constant across images) or a list (specific to each image). For instance, to keep ``x_0`` constant across all images, one would pass a float/int. Or, to supply the ``r_eff`` for each image separately, one would pass a list of floats. For the parameters ``bg``, ``rms`` and ``counts_per_flux`` can also be supplied as an ndarray or list of ndarrays in the same shape as ``images``, while the corner plot samples will show the mean of these images for generality, the full arrays will be parsed in the likelihood function.
 
 
 **Parallelisation**
